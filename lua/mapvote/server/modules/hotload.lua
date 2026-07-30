@@ -122,9 +122,25 @@ local function WriteHotloadedMapToSQL(mapname, wsid) -- map name with ".bsp" by 
     print("successfully wrote " .. mapname .. ", " .. wsid .. " to sql")
 end
 
+local DownloadedPathsCache = {}
+function steamworks.DownloadUGC_CACHED(wsid, callback)
+    if DownloadedPathsCache[wsid] then
+        print("returning cached wsid: " .. wsid .. ", cached path: " .. DownloadedPathsCache[wsid])
+        callback(DownloadedPathsCache[wsid], _)
+        return
+    end
+
+    print("downloading new " .. wsid)
+    steamworks.DownloadUGC(wsid, function(path, fileobject)
+        DownloadedPathsCache[wsid] = path
+        PrintTable(DownloadedPathsCache)
+        callback(path, fileobject)
+    end)
+end
+
 local AlreadyMountedWSIDs = {} -- prevent errors in GMA.create -> GMA.build about it complaining about not being able to open (mounted?) gma files
 local function HotloadMap(wsid) -- this should only mount if the map is voted on, not always
-    steamworks.DownloadUGC(wsid, function(path, fileobject)
+    steamworks.DownloadUGC_CACHED(wsid, function(path, fileobject)
         -- the file
         print("remember to delete the original gma file in " .. path .. ".\nthis function does not delete it by itself. will figure out a way to do this through api or something eventually.")
         -- inconvenient, solve this later
@@ -241,4 +257,131 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     -- from https://wiki.facepunch.com/gmod/resource.AddWorkshop
     -- the hotloaded maps, however, are not automatically added, so
     -- if you don't do this clients will get "map is missing" (and something about NET_MAXFILESIZEFRAGMENTS limit will print in the console) when loading into the server
+end)
+
+--[[---------------
+    Chat commands
+-----------------]]
+--Pretty much just near copies of 
+-- https://github.com/greyliterature/map_vote/blob/c5a8930302c9f53f0230409e845a9e8fc1f6aa3d/lua/mapvote/server/modules/rtv.lua#L127-L157
+-- since those functions do the job pretty well already
+--
+local RTV = MapVote.RTV
+local Nominate = {} -- functions table
+function Nominate.CanVote(ply, wsid, ugccallback)
+    local conf = MapVote.GetConfig()
+    if not wsid then ugccallback(false, "You must nominate a workshop id!") end
+    --if ply.LastVote == wsid then ugccallback(false, "Already voted for this map!") end
+    if conf.EnableNomination == false then ugccallback(false, "Nomination is disabled!") end
+    if conf.NominateWait >= CurTime() then ugccallback(false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!") end
+    if GetGlobalBool("In_Voting") then ugccallback(false, "There is currently a vote in progress!") end
+    if MapVote.state.isInProgress then ugccallback(false, "There is already a vote in progress") end
+    --if RTV.GetPlayerCount() < conf.RTVPlayerCount then ugccallback(false, "You need more players before you can nominate a map!") end
+    steamworks.FileInfo(wsid, function(data)
+        -- check if the wsid is valid
+        print("TETSTTING")
+        PrintTable(data)
+        if data.error == -3 then
+            ugccallback(false, "must nominate a valid workshop ID")
+        else
+            ugccallback(true)
+        end
+    end)
+end
+
+function Nominate.GetMapsFromAddon(wsid, callback)
+    -- do downloadugc stuff here
+    local maps = {}
+    steamworks.DownloadUGC_CACHED(wsid, function(filepath, _)
+        local files = GMA.Read(filepath, false, "GAME").Files
+        for k, tbl in ipairs(files) do
+            local OriginalPath = tbl.Name
+            local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
+            if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" then
+                local mapname = string.sub(tbl.Name, 6, #tbl.Name - 4) -- "maps/mapname.bsp" becomes just "mapname"
+                maps[#maps + 1] = mapname
+                print("map added to list of maps in addon " .. wsid .. ": " .. mapname)
+            else
+                continue
+            end
+        end
+
+        callback(maps)
+    end)
+    callback(maps) -- does this ever run? check if steamworks.downloadugc() errors if it fails.
+end
+
+Nominate.GetMapsFromAddon("3751308439", function(maps)
+    --
+    PrintTable(maps)
+end)
+
+local debugging = true
+function Nominate.GetThreshold()
+    if debugging == true then return 0 end
+    local conf = MapVote.GetConfig()
+    local totalPlayers = RTV.GetPlayerCount() -- old RTV player count function works fine for this case
+    local threshold = totalPlayers * conf.NominatePercentPlayersRequired
+    return math.ceil(threshold)
+end
+
+local Nominations = {} -- tracking votes by wsid
+-- should make this track maps too. addons add multiple maps at a time sometimes
+function Nominate.AddVote(ply, wsid)
+    Nominations[wsid] = ((Nominations[wsid] and Nominations[wsid]) or 0) + 1
+    ply.LastVote = wsid
+    PrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add " .. wsid .. " to the RTV list.")
+end
+
+function Nominate.AddToMapList()
+    -- add it to the mapvote panel popup here
+end
+
+function Nominate.MapShouldAdd(wsid)
+    if MapVote.state.isInProgress then return end
+    if debugging == true then return true end
+    local conf = MapVote.GetConfig()
+    local totalVotes = Nominations[wsid]
+    local totalPlayers = RTV.GetPlayerCount()
+    if totalPlayers < conf.RTVPlayerCount then return end
+    if totalPlayers == 0 then return end
+    return totalVotes >= Nominate.GetThreshold()
+end
+
+function Nominate.AddToMapList(wsid)
+    PrintTable(Nominations)
+    print("YEAH!")
+end
+
+function Nominate.AddToMapListIfMapShouldAdd(wsid)
+    if Nominate.MapShouldAdd(wsid) then
+        Nominate.AddToMapList(wsid)
+        return
+    end
+end
+
+function Nominate.Map(ply, wsid)
+    if not IsValid(ply) then return end
+    Nominate.CanVote(ply, wsid, function(can, err)
+        if can == false then
+            ply:PrintMessage(HUD_PRINTTALK, err)
+            return
+        else
+            Nominate.AddVote(ply, wsid)
+            Nominate.AddToMapListIfMapShouldAdd(wsid)
+        end
+    end)
+end
+
+RTV.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
+hook.Add("PlayerSay", "Nominate Chat Command", function(ply, text)
+    text = string.lower(text)
+    args = string.Explode(" ", text) -- !command -> 123, true, false <-
+    cmd = args[1] -- !command
+    table.remove(args, 1)
+    local f = RTV.ChatCommands[cmd]
+    if f then
+        f(ply, unpack(args))
+        return
+    end
 end)
