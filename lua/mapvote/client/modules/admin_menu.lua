@@ -26,7 +26,7 @@ local configMenuOptions = {
     { "Disable a map after its played",                                          schema.fields.EnableCooldown,              "EnableCooldown" },
     { "The amount of maps that need to be played before a map is enabled again", schema.fields.MapsBeforeRevote,            "MapsBeforeRevote" },
     { seperator = true,                                                          text = "Hotloading"},
-    { "Allow !nominate command for hotloading maps",                           schema.fields.EnableCooldown,              "AllowNomination"},
+    { "Allow !nominate command for hotloading maps",                             schema.fields.EnableNomination,             "AllowNomination"},
 }
 
 MapVote._mapconfigFrame = nil
