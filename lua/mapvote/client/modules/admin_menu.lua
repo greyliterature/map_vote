@@ -27,7 +27,7 @@ local configMenuOptions = {
     { "The amount of maps that need to be played before a map is enabled again", schema.fields.MapsBeforeRevote,            "MapsBeforeRevote" },
     { seperator = true,                                                          text = "Hotloading"},
     { "Allow !nominate command for hotloading maps",                             schema.fields.EnableNomination,            "AllowNomination"},
-    { "The time !nominate is disabled after a map change in seconds",            schema.fields.NominationWait,              "NominateWait"}
+    { "The time !nominate is disabled after a map change in seconds",            schema.fields.NominateWait,                "NominateWait"}
 }
 
 MapVote._mapconfigFrame = nil
