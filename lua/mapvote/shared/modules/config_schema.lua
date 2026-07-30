@@ -26,6 +26,7 @@ local schema = SV.Object {
     MapIconURLs = SV.Map( SV.String(), SV.String() ):Optional(),
     EnableNomination = SV.Bool(),
     NominateWait = SV.Number(),
+    NominatePercentPlayersRequired = SV.Number { min = 0, max = 1 },
 }
 
 local default = {
