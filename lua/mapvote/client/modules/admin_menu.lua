@@ -25,6 +25,8 @@ local configMenuOptions = {
     { "Use map prefixes from gamemode.txt",                                      schema.fields.UseGamemodeMapPrefixes,      "UseGamemodeMapPrefixes" },
     { "Disable a map after its played",                                          schema.fields.EnableCooldown,              "EnableCooldown" },
     { "The amount of maps that need to be played before a map is enabled again", schema.fields.MapsBeforeRevote,            "MapsBeforeRevote" },
+    { seperator = true,                                                          text = "Hotloading"},
+    { "Allow !nominate command for hotloading maps",                           schema.fields.EnableCooldown,              "AllowNomination"},
 }
 
 MapVote._mapconfigFrame = nil
@@ -55,16 +57,8 @@ function MapVote.openconfig()
         MapVote.Net.sendConfig()
     end
 
-    MapVote.Net.sendConfigRequest( function()
-        configMenu:Clear()
-        for _, option in pairs( configMenuOptions ) do
-            if option.seperator then
-                configMenu:AddSeperator( option.text )
-            elseif IsValid( configMenu ) and configMenu.AddConfigItem then
-                configMenu:AddConfigItem( option[1], option[2], updateconfigKey( option[3] ), MapVote.config[option[3]] )
-            end
-        end
-
+    local buttonOpenMapsAdded = false
+    local function addButtonOpenMaps()
         local buttonOpenMaps = vgui.Create( "DButton" ) --[[@as DButton]]
         buttonOpenMaps:SetText( "Open Map config" )
         buttonOpenMaps:Dock( LEFT )
@@ -75,6 +69,24 @@ function MapVote.openconfig()
             MapVote.openMapconfig()
         end
         configMenu:AddConfigPanel( "Edit map selection", buttonOpenMaps )
+        buttonOpenMapsAdded = true
+    end
+
+    MapVote.Net.sendConfigRequest( function()
+        configMenu:Clear()
+        for _, option in pairs( configMenuOptions ) do
+            if option.seperator then
+                configMenu:AddSeperator( option.text )
+            elseif IsValid( configMenu ) and configMenu.AddConfigItem then
+                configMenu:AddConfigItem( option[1], option[2], updateconfigKey( option[3] ), MapVote.config[option[3]] )
+            end
+            if option[3] == "MapsBeforeRevote" then
+                addButtonOpenMaps()
+            end
+        end
+        if buttonOpenMapsAdded == false then
+            addButtonOpenMaps()
+        end
     end )
 end
 
