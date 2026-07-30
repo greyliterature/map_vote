@@ -51,6 +51,9 @@ local default = {
     PlyRTVCooldownSeconds = 120,
     MapIconURLs = {},
     MapConfig = {},
+    EnableNomination = false,
+    NominateWait = 60,
+    NominatePercentPlayersRequired = 0.66
 }
 
 MapVote.configSchema = schema
