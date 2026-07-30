@@ -24,7 +24,8 @@ local schema = SV.Object {
     } ) ):Optional(),
     PlyRTVCooldownSeconds = SV.Int { min = 1 },
     MapIconURLs = SV.Map( SV.String(), SV.String() ):Optional(),
-    EnableNomination = SV.Bool()
+    EnableNomination = SV.Bool(),
+    NominateWait = SV.Number(),
 }
 
 local default = {
