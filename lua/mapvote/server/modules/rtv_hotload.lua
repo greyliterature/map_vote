@@ -328,7 +328,7 @@ function Nominate.GetMapsFromAddon(wsid)
                 local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
                 if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" and string.lower(string.sub(OriginalPath, #OriginalPath - 3, #OriginalPath)) == ".bsp" then
                     local mapname = string.sub(tbl.Name, 6, #tbl.Name - 4) -- "maps/mapname.bsp" becomes just "mapname"
-                   if not firstmap then firstmap = mapname end
+                    if not firstmap then firstmap = mapname end
                     MapCache[wsid][mapname] = true
                     MapCache[wsid]["Arrayed"][#MapCache[wsid]["Arrayed"] + 1] = mapname
                     print("map added to list of maps in addon " .. wsid .. ": " .. mapname)
@@ -471,28 +471,6 @@ function MapVote.getMapList() -- need to make the original function work with ho
     return ValidMaps
 end
 
---[[
-function MapVote.GetWinningKey(tab)
-    local highest = -math.huge
-    local count = 0
-    for _, v in pairs(tab) do
-        if v > highest then
-            highest = v
-            count = 1
-        elseif v == highest then
-            count = count + 1
-        end
-    end
-
-    local desired = math.random(1, count)
-    local i = 0
-    for k, v in pairs(tab) do
-        if v == highest then i = i + 1 end
-        if i == desired then return k end
-    end
-    return nil
-end
---]]
 hook.Add("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
     for _, tbl in ipairs(NominatedMaps) do
         local mapname = tbl[2]
