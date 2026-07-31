@@ -1,3 +1,18 @@
+--[[-----------------
+    Useful functions
+-------------------]]
+local function DelayPrintMessage(HUDTYPE, message)
+    timer.Simple(0, function() PrintMessage(HUDTYPE, message) end)
+end
+
+local PLAYERMETA = FindMetaTable("Player")
+function PLAYERMETA:DelayPrintMessage(HUDTYPE, message)
+    timer.Simple(0, function() self:PrintMessage(HUDTYPE, message) end)
+end
+
+--[[-----------------
+    Rest
+-------------------]]
 -- this requires my fork of raphael's gma-writer to work https://github.com/greyliterature/gmod-lua-gma-writer/blob/main/gma.lua
 -- ill have to add it to the modules folder probably. 
 -- i havent asked for permission from raphael to put his gma-writer code directly in another repo so when this concept is closer to being finished i will do that.
@@ -27,6 +42,7 @@ local UnwhitelistedExtensions = {
     -- fix that later
     "bsp",
     "pcf",
+    "ain",
 }
 
 local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but without all the lua
@@ -83,7 +99,7 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
                 GMA.Create(NewGMAPath .. ".gma", "data" .. "/" .. NewGMAPath, true, false, function(gmapath)
                     --
                     callback(gmapath)
-                    PrintMessage(HUD_PRINTTALK, "Made " .. gmapath)
+                    DelayPrintMessage(HUD_PRINTTALK, "Made " .. gmapath)
                 end, ExtensionsToBypass)
             end
         else
@@ -98,13 +114,14 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
 end
 
 local HotloadedMaps = {}
+--[[
 local function FindMapWorkshopID(mapname) -- unused, should make initpostentity use this, move the sql stuff into here and just call that
     for k, v in ipairs(engine.GetAddons()) do
         print(k)
         PrintTable(v)
     end
 end
-
+--]]
 --FindMapWorkshopID("ap_aerowalk")
 local function WriteHotloadedMapToSQL(mapname, wsid) -- map name with ".bsp" by the way
     local firstoperation = sql.QueryTyped("CREATE TABLE IF NOT EXISTS hotloaded_maps (mapname TEXT, wsid TEXT)")
@@ -139,7 +156,7 @@ function steamworks.DownloadUGC_CACHED(wsid, callback)
 end
 
 local AlreadyMountedWSIDs = {} -- prevent errors in GMA.create -> GMA.build about it complaining about not being able to open (mounted?) gma files
-local function HotloadMap(wsid) -- this should only mount if the map is voted on, not always
+local function HotloadMap(wsid, callback) -- this should only mount if the map is voted on, not always
     steamworks.DownloadUGC_CACHED(wsid, function(path, fileobject)
         -- the file
         print("remember to delete the original gma file in " .. path .. ".\nthis function does not delete it by itself. will figure out a way to do this through api or something eventually.")
@@ -152,7 +169,7 @@ local function HotloadMap(wsid) -- this should only mount if the map is voted on
                 return
             end
 
-            --PrintMessage(HUD_PRINTTALK, "Made stripped GMA at " .. gmapath)
+            --DelayPrintMessage(HUD_PRINTTALK, "Made stripped GMA at " .. gmapath)
             if AlreadyMountedWSIDs[wsid] then
                 print(wsid .. " was already mounted, returning")
                 return
@@ -161,30 +178,24 @@ local function HotloadMap(wsid) -- this should only mount if the map is voted on
             local succ, files = game.MountGMA(gmapath)
             if succ == true then
                 AlreadyMountedWSIDs[wsid] = true
-                PrintMessage(HUD_PRINTTALK, "Mounted stripped GMA")
+                DelayPrintMessage(HUD_PRINTTALK, "Mounted stripped GMA")
                 for _, filename in ipairs(files) do
                     if string.EndsWith(filename, ".bsp") then --
                         filename = string.GetFileFromFilename(filename)
                         WriteHotloadedMapToSQL(filename, wsid)
                         HotloadedMaps[filename] = wsid
-                        PrintMessage(HUD_PRINTTALK, "Mounted " .. filename)
+                        DelayPrintMessage(HUD_PRINTTALK, "Mounted " .. filename)
                     end
                 end
+
+                callback(true)
             else
                 error("failed to mount GMA")
+                callback(false)
             end
         end)
     end)
 end
-
-hook.Add("PlayerSay", "hotloadmaptestinghook", function(sender, text)
-    -- this is just for testing, remove it later
-    if text == "!dd" then
-        --
-        print("running")
-        HotloadMap("3751308439")
-    end
-end)
 
 local matchedDirs = {}
 local function recurseListContents(path, first) -- this is from example #2, won't let me link it properly https://wiki.facepunch.com/gmod/file.Find#example
@@ -213,7 +224,7 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
         -- the table recording mounted gmas / hotloaded_maps doesn't matter, so
         -- delete that table so it doesn't grow too large. 
         -- the game.IsDedicated check is for listen servers. (since gmas never unmount, even when a listenserver gets shut down, to my knowledge).
-        sql.QueryTyped("DROP TABLE IF EXISTS hotloaded_maps")
+        sql.QueryTyped("TRUNCATE TABLE IF EXISTS hotloaded_maps")
         print("deleted hotloaded_maps table, server recently started")
         --
         -- if the server / game is recently up, we can safely remove all the gmas (since they are not mounted anymore). 
@@ -233,30 +244,32 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
         return
     end
 
-    local CheckIfCurrentMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", game.GetMap() .. ".bsp") -- move this to FindMapWorkshopID() later probably
-    if CheckIfCurrentMapIsInSQLTable == false then
-        error("CheckIfCurrentMapIsInSQLTable failed" .. sql.LastError())
-        return
-    end
+    if sql.TableExists("hotloaded_maps") then
+        local CheckIfCurrentMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", game.GetMap() .. ".bsp") -- move this to FindMapWorkshopID() later probably
+        if CheckIfCurrentMapIsInSQLTable == false then
+            error("CheckIfCurrentMapIsInSQLTable failed" .. (sql.LastError() or ""))
+            return
+        end
 
-    local wsid = nil
-    if CheckIfCurrentMapIsInSQLTable[1] then
-        wsid = CheckIfCurrentMapIsInSQLTable[1]["wsid"]
-        -- there should be an else statement here that errors if the map is not in engine.GetAddons(), but still exists.
-        -- that would mean that the map has been hotloaded, but the sql table somehow wasnt updated, so then it should 
-        -- error to tell the server about this. this is easily testable by destroying the listenserver and reconnecting, then loading to a hot loaded map. 
-        -- maybe if this happens it should load to the server's default map (otherwise no one would be able to connect, which would kill server pop, so might as well switch to default map)
-        -- do this later.
-        print("Read this comment and do it later")
-    end
+        local wsid = nil
+        if CheckIfCurrentMapIsInSQLTable[1] then
+            wsid = CheckIfCurrentMapIsInSQLTable[1]["wsid"]
+            -- there should be an else statement here that errors if the map is not in engine.GetAddons(), but still exists.
+            -- that would mean that the map has been hotloaded, but the sql table somehow wasnt updated, so then it should 
+            -- error to tell the server about this. this is easily testable by destroying the listenserver and reconnecting, then loading to a hot loaded map. 
+            -- maybe if this happens it should load to the server's default map (otherwise no one would be able to connect, which would kill server pop, so might as well switch to default map)
+            -- do this later.
+            print("Read this comment and do it later")
+        end
 
-    if not wsid then return end
-    print("Current map is in hotloaded_maps table, " .. "resource.AddWorkshop(" .. wsid .. ")")
-    resource.AddWorkshop(wsid)
-    -- "Gamemodes that are workshop enabled and the current map are automatically added to this list, if they come from the servers' workshop collection - so there's no need to manually add them."
-    -- from https://wiki.facepunch.com/gmod/resource.AddWorkshop
-    -- the hotloaded maps, however, are not automatically added, so
-    -- if you don't do this clients will get "map is missing" (and something about NET_MAXFILESIZEFRAGMENTS limit will print in the console) when loading into the server
+        if not wsid then return end
+        print("Current map is in hotloaded_maps table, " .. "resource.AddWorkshop(" .. wsid .. ")")
+        resource.AddWorkshop(wsid)
+        -- "Gamemodes that are workshop enabled and the current map are automatically added to this list, if they come from the servers' workshop collection - so there's no need to manually add them."
+        -- from https://wiki.facepunch.com/gmod/resource.AddWorkshop
+        -- the hotloaded maps, however, are not automatically added, so
+        -- if you don't do this clients will get "map is missing" (and something about NET_MAXFILESIZEFRAGMENTS limit will print in the console) when loading into the server
+    end
 end)
 
 --[[---------------
@@ -265,58 +278,69 @@ end)
 --Pretty much just near copies of 
 -- https://github.com/greyliterature/map_vote/blob/c5a8930302c9f53f0230409e845a9e8fc1f6aa3d/lua/mapvote/server/modules/rtv.lua#L127-L157
 -- since those functions do the job pretty well already
+local debugging = true -- remove this after testing
 --
 local RTV = MapVote.RTV
 local Nominate = {} -- functions table
-function Nominate.CanVote(ply, wsid, ugccallback)
+function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     local conf = MapVote.GetConfig()
-    if not wsid then ugccallback(false, "You must nominate a workshop id!") end
-    --if ply.LastVote == wsid then ugccallback(false, "Already voted for this map!") end
-    if conf.EnableNomination == false then ugccallback(false, "Nomination is disabled!") end
-    if conf.NominateWait >= CurTime() then ugccallback(false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!") end
-    if GetGlobalBool("In_Voting") then ugccallback(false, "There is currently a vote in progress!") end
-    if MapVote.state.isInProgress then ugccallback(false, "There is already a vote in progress") end
-    --if RTV.GetPlayerCount() < conf.RTVPlayerCount then ugccallback(false, "You need more players before you can nominate a map!") end
+    if not wsid then return false, "You must nominate a workshop id!" end
+    if debugging ~= true and ply.LastVote == mapname then return false, "Already voted for this map!" end
+    if conf.EnableNomination == false then return false, "Nomination is disabled!" end
+    if conf.NominateWait >= CurTime() then return false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!" end
+    if GetGlobalBool("In_Voting") then return false, "There is currently a vote in progress!" end
+    if MapVote.state.isInProgress then return false, "There is already a vote in progress" end
+    if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then return false, "You need more players before you can nominate a map!" end
+    local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
+    if table.Count(PossibleMaps) - 1 == 0 then return false, "That addon does not have any maps!" end
+    if not PossibleMaps[mapname] then return false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, 5) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or "") end
+    --[[
+    -- This isnt needed because "That addon does not have any maps!" return (should) captures this earlier
     steamworks.FileInfo(wsid, function(data)
         -- check if the wsid is valid
         print("TETSTTING")
-        PrintTable(data)
         if data.error == -3 then
-            ugccallback(false, "must nominate a valid workshop ID")
+            return false, "must nominate a valid workshop ID"
         else
-            ugccallback(true)
+            return true
         end
     end)
+    --]]
 end
 
-function Nominate.GetMapsFromAddon(wsid, callback)
+local MapCache = {}
+function Nominate.GetMapsFromAddon(wsid)
     -- do downloadugc stuff here
-    local maps = {}
-    steamworks.DownloadUGC_CACHED(wsid, function(filepath, _)
-        local files = GMA.Read(filepath, false, "GAME").Files
-        for k, tbl in ipairs(files) do
-            local OriginalPath = tbl.Name
-            local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
-            if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" then
-                local mapname = string.sub(tbl.Name, 6, #tbl.Name - 4) -- "maps/mapname.bsp" becomes just "mapname"
-                maps[#maps + 1] = mapname
-                print("map added to list of maps in addon " .. wsid .. ": " .. mapname)
-            else
-                continue
-            end
+    local firstmap = nil
+    if MapCache[wsid] then
+        print("WSID already searched, returning cache")
+        for mapname, _ in pairs(MapCache) do -- this is not ordered but that's probably ok.
+            firstmap = mapname
+            break
         end
-
-        callback(maps)
-    end)
-    callback(maps) -- does this ever run? check if steamworks.downloadugc() errors if it fails.
+    else
+        MapCache[wsid] = {}
+        MapCache[wsid]["Arrayed"] = {} -- for table.concat, this means that all table.counts of PossibleMaps will have to be subtracted one though.
+        steamworks.DownloadUGC_CACHED(wsid, function(filepath, _)
+            local files = GMA.Read(filepath, false, "GAME").Files
+            for k, tbl in ipairs(files) do
+                local OriginalPath = tbl.Name
+                local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
+                if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" then
+                    local mapname = string.sub(tbl.Name, 6, #tbl.Name - 4) -- "maps/mapname.bsp" becomes just "mapname"
+                    if not firstmap then firstmap = mapname end
+                    MapCache[wsid][mapname] = true
+                    MapCache[wsid]["Arrayed"][#MapCache[wsid]["Arrayed"] + 1] = mapname
+                    print("map added to list of maps in addon " .. wsid .. ": " .. mapname)
+                else
+                    continue
+                end
+            end
+        end)
+    end
+    return MapCache[wsid], firstmap
 end
 
-Nominate.GetMapsFromAddon("3751308439", function(maps)
-    --
-    PrintTable(maps)
-end)
-
-local debugging = true
 function Nominate.GetThreshold()
     if debugging == true then return 0 end
     local conf = MapVote.GetConfig()
@@ -327,14 +351,10 @@ end
 
 local Nominations = {} -- tracking votes by wsid
 -- should make this track maps too. addons add multiple maps at a time sometimes
-function Nominate.AddVote(ply, wsid)
-    Nominations[wsid] = ((Nominations[wsid] and Nominations[wsid]) or 0) + 1
-    ply.LastVote = wsid
-    PrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add " .. wsid .. " to the RTV list.")
-end
-
-function Nominate.AddToMapList()
-    -- add it to the mapvote panel popup here
+function Nominate.AddVote(ply, wsid, mapname)
+    Nominations[mapname] = ((Nominations[mapname] and Nominations[mapname]) or 0) + 1
+    ply.LastVote = mapname
+    DelayPrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add wsid " .. wsid .. ", " .. mapname .. " to be added to the RTV list.")
 end
 
 function Nominate.MapShouldAdd(wsid)
@@ -348,29 +368,52 @@ function Nominate.MapShouldAdd(wsid)
     return totalVotes >= Nominate.GetThreshold()
 end
 
-function Nominate.AddToMapList(wsid)
-    PrintTable(Nominations)
-    print("YEAH!")
+NominatedMaps = {}
+function Nominate.AddToMapList(wsid, mapname)
+    DelayPrintMessage(HUD_PRINTTALK, "Added " .. wsid .. ", " .. mapname .. " to rtv list.")
+    NominatedMaps[#NominatedMaps + 1] = {wsid, mapname}
 end
 
-function Nominate.AddToMapListIfMapShouldAdd(wsid)
-    if Nominate.MapShouldAdd(wsid) then
-        Nominate.AddToMapList(wsid)
+function Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
+    if Nominate.MapShouldAdd(wsid, mapname) then
+        Nominate.AddToMapList(wsid, mapname)
         return
     end
 end
 
-function Nominate.Map(ply, wsid)
+function Nominate.Map(ply, wsid, mapname)
     if not IsValid(ply) then return end
-    Nominate.CanVote(ply, wsid, function(can, err)
-        if can == false then
-            ply:PrintMessage(HUD_PRINTTALK, err)
-            return
+    local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
+    if table.Count(PossibleMaps) - 1 > 1 and not mapname then
+        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, 5) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+        return
+    elseif table.Count(PossibleMaps) - 1 == 1 then
+        mapname = firstmap
+    end
+
+    local can, err = Nominate.CanVote(ply, wsid, mapname)
+    if can == false then
+        ply:DelayPrintMessage(HUD_PRINTTALK, err)
+        return
+    else
+        --[[
+     local PossibleChoiceCommands = {} -- !gm_map1, !gm_map2, !gm_map3
+        if #PossibleMaps > 1 then
+            ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Choose which one you'd like to nominate by saying it.\nAvailable maps: \n" .. table.concat(PossibleMaps, "\n"))
+                hook.Add("PlayerSay", "GetMultiMapNominationChoice", function(sender, text, _)
+                    print(sender, ply)
+                    if sender == ply and PossibleChoiceCommands[text] then --
+                        ChosenMapName = text
+                    end
+                end)
+            --
         else
-            Nominate.AddVote(ply, wsid)
-            Nominate.AddToMapListIfMapShouldAdd(wsid)
+            ChosenMapName = PossibleMaps[1]
         end
-    end)
+        --]]
+        Nominate.AddVote(ply, wsid, mapname)
+        Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
+    end
 end
 
 RTV.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
@@ -383,5 +426,101 @@ hook.Add("PlayerSay", "Nominate Chat Command", function(ply, text)
     if f then
         f(ply, unpack(args))
         return
+    end
+end)
+
+--[[---------------
+    Detours
+-----------------]]
+MapVote._maps = nil
+function MapVote.getMapList() -- need to make the original function work with hotload
+    if MapVote._maps then return MapVote._maps end
+    local maps = file.Find("maps/*.bsp", "GAME")
+    local ValidMaps = {}
+    local tblexists = sql.TableExists("hotloaded_maps")
+    for i, v in ipairs(maps) do
+        local mapname = string.sub(v, 1, -5)
+        if tblexists == true then
+            local CheckIfCurrentMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", v) -- move this to FindMapWorkshopID() later probably
+            if CheckIfCurrentMapIsInSQLTable == false then
+                ErrorNoHaltWithStack("CheckIfCurrentMapIsInSQLTable failed" .. (sql.LastError() or ""))
+                continue
+            end
+
+            if CheckIfCurrentMapIsInSQLTable[1] then
+                --print("not adding " .. mapname .. " to rtv list.")
+                continue
+            end
+        end
+
+        table.insert(ValidMaps, mapname) -- strip .bsp
+    end
+
+    local conf = MapVote.GetConfig()
+    if conf.EnableNomination == true then
+        for i, tbl in ipairs(NominatedMaps) do
+            local IndexToRemove = #ValidMaps - i
+            table.remove(ValidMaps, IndexToRemove)
+            print("removed " .. IndexToRemove .. " from maps list.")
+            local mapname = tbl[2]
+            table.insert(ValidMaps, mapname)
+        end
+    end
+
+    MapVote._maps = ValidMaps
+    return ValidMaps
+end
+
+--[[
+function MapVote.GetWinningKey(tab)
+    local highest = -math.huge
+    local count = 0
+    for _, v in pairs(tab) do
+        if v > highest then
+            highest = v
+            count = 1
+        elseif v == highest then
+            count = count + 1
+        end
+    end
+
+    local desired = math.random(1, count)
+    local i = 0
+    for k, v in pairs(tab) do
+        if v == highest then i = i + 1 end
+        if i == desired then return k end
+    end
+    return nil
+end
+--]]
+hook.Add("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
+    for _, tbl in ipairs(NominatedMaps) do
+        local mapname = tbl[2]
+        if mapname == map then --
+            return false
+        end
+    end
+end)
+
+hook.Add("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
+    --
+    local winningmap = resultstable.state.currentMaps[resultstable.winner]
+    local secondwinningmap = resultstable.state.currentMaps[resultstable.winner - 1]
+    for _, tbl in ipairs(NominatedMaps) do
+        local wsid = tbl[1]
+        local mapname = tbl[2]
+        if mapname == winningmap then
+            HotloadMap(wsid, function(succ)
+                if succ == true then
+                    PrintMessage(HUD_PRINTTALK, "Attempting to change level to hotloaded map " .. wsid .. ", " .. mapname)
+                    RunConsoleCommand("changelevel", mapname)
+                else
+                    PrintMessage(HUD_PRINTTALK, "Failed to mount GMA of " .. wsid .. "changing map to second highest winner.")
+                    RunConsoleCommand("changelevel", secondwinningmap)
+                end
+            end)
+
+            break
+        end
     end
 end)
