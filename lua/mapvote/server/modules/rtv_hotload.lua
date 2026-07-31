@@ -278,7 +278,7 @@ end)
 --Pretty much just near copies of 
 -- https://github.com/greyliterature/map_vote/blob/c5a8930302c9f53f0230409e845a9e8fc1f6aa3d/lua/mapvote/server/modules/rtv.lua#L127-L157
 -- since those functions do the job pretty well already
-local debugging = true -- remove this after testing
+local debugging = false -- remove this after testing
 --
 local RTV = MapVote.RTV
 local Nominate = {} -- functions table
@@ -293,7 +293,7 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then return false, "You need more players before you can nominate a map!" end
     local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
     if table.Count(PossibleMaps) - 1 == 0 then return false, "That addon does not have any maps!" end
-    if not PossibleMaps[mapname] then return false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, 5) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or "") end
+    if mapname and not PossibleMaps[mapname] then return false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or "") end
     --[[
     -- This isnt needed because "That addon does not have any maps!" return (should) captures this earlier
     steamworks.FileInfo(wsid, function(data)
@@ -314,7 +314,7 @@ function Nominate.GetMapsFromAddon(wsid)
     local firstmap = nil
     if MapCache[wsid] then
         print("WSID already searched, returning cache")
-        for mapname, _ in pairs(MapCache) do -- this is not ordered but that's probably ok.
+        for _, mapname in ipairs(MapCache[wsid]["Arrayed"]) do -- this is not ordered but that's probably ok.
             firstmap = mapname
             break
         end
@@ -326,9 +326,9 @@ function Nominate.GetMapsFromAddon(wsid)
             for k, tbl in ipairs(files) do
                 local OriginalPath = tbl.Name
                 local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
-                if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" then
+                if string.lower(string.sub(DirectoryPath, 1, 4)) == "maps" and string.lower(string.sub(OriginalPath, #OriginalPath - 3, #OriginalPath)) == ".bsp" then
                     local mapname = string.sub(tbl.Name, 6, #tbl.Name - 4) -- "maps/mapname.bsp" becomes just "mapname"
-                    if not firstmap then firstmap = mapname end
+                   if not firstmap then firstmap = mapname end
                     MapCache[wsid][mapname] = true
                     MapCache[wsid]["Arrayed"][#MapCache[wsid]["Arrayed"] + 1] = mapname
                     print("map added to list of maps in addon " .. wsid .. ": " .. mapname)
@@ -385,7 +385,7 @@ function Nominate.Map(ply, wsid, mapname)
     if not IsValid(ply) then return end
     local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
     if table.Count(PossibleMaps) - 1 > 1 and not mapname then
-        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, 5) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
         return
     elseif table.Count(PossibleMaps) - 1 == 1 then
         mapname = firstmap
