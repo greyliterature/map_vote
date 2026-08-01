@@ -1,4 +1,3 @@
-
 --[[-----------------
     Useful functions
 -------------------]]
@@ -8,6 +7,7 @@ end
 
 local PLAYERMETA = FindMetaTable("Player")
 function PLAYERMETA:DelayPrintMessage(HUDTYPE, message)
+    if not IsValid(self) then return end
     timer.Simple(0, function() self:PrintMessage(HUDTYPE, message) end)
 end
 
@@ -46,6 +46,23 @@ local UnwhitelistedExtensions = {
     "ain",
 }
 
+local Blacklist = {
+    -- NEVER file.write these extensions into the stripped gma.
+    ["lua"] = true,
+    xml = true,
+    csv = true,
+    json = true,
+    vcs = true,
+    dat = true,
+    png = true,
+    properties = true,
+    ttf = true,
+}
+
+local function IsExtensionBlacklisted(extension)
+    return Blacklist[extension]
+end
+
 local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but without all the lua
     -- this makes a folder in data/strippedhotloadgmas of the extracted gma
     -- then it takes the stripped, extracted contents and packs it into another gma
@@ -63,9 +80,15 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
     for k, tbl in ipairs(files) do
         local OriginalPath = tbl.Name
         local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
+        --[[
         if string.lower(string.sub(DirectoryPath, 1, 3)) == "lua" then
             print("not duplicating " .. DirectoryPath)
             successrequirement = successrequirement - 1
+            continue
+        end
+        --]]
+        if IsExtensionBlacklisted(string.GetExtensionFromFilename(OriginalPath)) then
+            print("not duplicating " .. OriginalPath .. ", blacklisted extension")
             continue
         end
 
@@ -160,13 +183,14 @@ local AlreadyMountedWSIDs = {} -- prevent errors in GMA.create -> GMA.build abou
 local function HotloadMap(wsid, callback) -- this should only mount if the map is voted on, not always
     steamworks.DownloadUGC_CACHED(wsid, function(path, fileobject)
         -- the file
-        print("remember to delete the original gma file in " .. path .. ".\nthis function does not delete it by itself. will figure out a way to do this through api or something eventually.")
+        if WISPED == false then print("remember to delete the original gma file in " .. path .. ".\nthis function does not delete it by itself. will figure out a way to do this through api or something eventually.") end
         -- inconvenient, solve this later
         -- maybe something can be done with the fileobject given, not sure
         DuplicateToStrippedGMA(path, function(gmapath)
             if not gmapath then
                 ErrorNoHaltWithStack("gmapath is nil")
                 -- at this point you should be giving up and loading another map, or cancelling the RTV. 
+                callback(false)
                 return
             end
 
@@ -291,8 +315,9 @@ local color_red = Color(255, 0, 0)
 ENV = util.JSONToTable(file.Read("mapvote/ENV.json", "DATA"))
 local SERVER_TOKEN = ENV.ACCOUNTTOKEN -- this is used to delete lingering hotloaded gmas in cache/scrds and steam_cache
 local SERVER_URL = ENV.SERVER_URL -- this is used for the api links
+local WISPED = (SERVER_TOKEN and SERVER_TOKEN ~= "") and (SERVER_URL and SERVER_URL ~= "") -- assumption on if the player is able to use WISP (Notion) api properly
 local function DeleteLingeringHotloadedGMAs()
-    if not SERVER_URL or not SERVER_TOKEN then
+    if (not SERVER_URL or SERVERURL == "") or (not SERVER_TOKEN or SERVER_TOKEN == "") then
         local FilePath = debug.getinfo(function() end).short_src
         MsgC(color_red, "SERVER_URL / ACCOUNTTOKEN not provided, returning.\nThis means you will have to manually delete the gma files accumulated in cache/scrds and steam_cache, since the script can't do it for you.\nRead the top of the file @ " .. FilePath .. " for links on how to get them\n")
         return
@@ -570,7 +595,7 @@ hook.Add("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
                     PrintMessage(HUD_PRINTTALK, "Attempting to change level to hotloaded map " .. wsid .. ", " .. mapname)
                     RunConsoleCommand("changelevel", mapname)
                 else
-                    PrintMessage(HUD_PRINTTALK, "Failed to mount GMA of " .. wsid .. "changing map to second highest winner.")
+                    PrintMessage(HUD_PRINTTALK, "Failed to mount GMA of " .. wsid .. ". changing map to second highest winner.")
                     RunConsoleCommand("changelevel", secondwinningmap)
                 end
             end)
