@@ -89,6 +89,7 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
         --]]
         if IsExtensionBlacklisted(string.GetExtensionFromFilename(OriginalPath)) then
             print("not duplicating " .. OriginalPath .. ", blacklisted extension")
+            successrequirement = successrequirement - 1
             continue
         end
 
@@ -111,7 +112,6 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
             f:Write(tbl.Content)
             f:Close()
             successes = successes + 1
-            --print(successes, successrequirement, "C")
             if successes == successrequirement then -- create gma when every single file is done
                 -- note: gma.create uses input relative to DATA, but output relative to GAME
                 if file.Exists(NewGMAPath .. ".gma", "DATA") == true then -- if the GMA file already exists, then it's probably safe to use that instead of making a new gma (it also prevents errors, because game.mountgma makes the file.open in gma.create -> gma.build() not work)
@@ -584,8 +584,15 @@ end)
 
 hook.Add("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
     --
+    if #NominatedMaps == 0 then return end
     local winningmap = resultstable.state.currentMaps[resultstable.winner]
-    local secondwinningmap = resultstable.state.currentMaps[resultstable.winner - 1]
+    local SecondWinningNonNominatedMap = resultstable.state.currentMaps[resultstable.winner - 1]
+    for i = resultstable.winner, 1, -1 do
+        local mapname = resultstable.state.currentMaps[i]
+        if Nominate.IsMapNominated(mapname) then continue end
+        SecondWinningNonNominatedMap = mapname
+    end
+
     for _, tbl in ipairs(NominatedMaps) do
         local wsid = tbl[1]
         local mapname = tbl[2]
@@ -595,8 +602,8 @@ hook.Add("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
                     PrintMessage(HUD_PRINTTALK, "Attempting to change level to hotloaded map " .. wsid .. ", " .. mapname)
                     RunConsoleCommand("changelevel", mapname)
                 else
-                    PrintMessage(HUD_PRINTTALK, "Failed to mount GMA of " .. wsid .. ". changing map to second highest winner.")
-                    RunConsoleCommand("changelevel", secondwinningmap)
+                    PrintMessage(HUD_PRINTTALK, "Failed to mount GMA of " .. wsid .. ". changing map to second highest non nominated winner.")
+                    RunConsoleCommand("changelevel", SecondWinningNonNominatedMap)
                 end
             end)
 
