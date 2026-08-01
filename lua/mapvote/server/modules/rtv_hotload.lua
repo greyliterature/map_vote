@@ -38,6 +38,23 @@ function Nominate.AddHook(hookname, identifier, func) -- so that the hooks can b
     NOMINATE_HOOKS[#NOMINATE_HOOKS + 1] = {hookname, identifier}
 end
 
+local ENV = file.Exists("mapvote/ENV.json", "DATA")
+if not ENV then
+    file.Write("mapvote/ENV.json", util.TableToJSON({
+        SERVER_URL = "", -- https://gamecp.physgun.com/server/XXXXXXXX <--
+        ACCOUNTTOKEN = "" -- get this at https://gamecp.physgun.com/account/security and paste it here
+    }))
+end
+
+ENV = util.JSONToTable(file.Read("mapvote/ENV.json", "DATA"))
+local SERVER_TOKEN = ENV.ACCOUNTTOKEN -- this is used to delete lingering hotloaded gmas in cache/scrds and steam_cache
+local SERVER_URL = ENV.SERVER_URL -- this is used for the api links
+local WISPED = (SERVER_TOKEN and SERVER_TOKEN ~= "") and (SERVER_URL and SERVER_URL ~= "") -- assumption on if the player is able to use WISP (Notion) api properly
+CAMI.RegisterPrivilege{
+    Name = "HotloadMap",
+    MinAccess = "superadmin"
+}
+
 --[[-----------------
     Useful functions
 -------------------]]
@@ -223,6 +240,7 @@ local AlreadyMountedWSIDs = {} -- prevent errors in GMA.create -> GMA.build abou
 local function HotloadMap(wsid, callback) -- this should only mount if the map is voted on, not always
     steamworks.DownloadUGC_CACHED(wsid, function(path, fileobject)
         -- the file
+        if not path then error("No path for " .. wsid) end
         if WISPED == false then print("remember to delete the original gma file in " .. path .. ".\nthis function does not delete it by itself. will figure out a way to do this through api or something eventually.") end
         -- inconvenient, solve this later
         -- maybe something can be done with the fileobject given, not sure
@@ -261,6 +279,34 @@ local function HotloadMap(wsid, callback) -- this should only mount if the map i
         end)
     end)
 end
+
+hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
+    if not string.StartsWith(text, "!hotload") then return end
+    args = string.Explode(" ", text) -- !command -> 123, true, false <-
+    table.remove(args, 1)
+    CAMI.PlayerHasAccess(sender, "HotloadMap", function(b, _)
+        -- From https://github.com/FPtje/FSpectate/blob/6ea5ae6e1b60fa8f1f848a2588db7225aea4dcd4/lua/fspectate/sv_init.lua#L66
+        if not b then
+            sender:ChatPrint("Not allowed to hotload maps!")
+            return
+        end
+
+        local wsid = args[1]
+        steamworks.FileInfo(wsid, function(data)
+            -- check if the wsid is valid
+            if data and data.error then
+                sender:DelayPrintMessage(HUD_PRINTTALK, "Workshop ID errored, probably invalid")
+            elseif not data then
+                sender:DelayPrintMessage(HUD_PRINTTALK, "Must provide a valid workshop ID")
+            else
+                local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
+                if table.Count(PossibleMaps) - 1 == 0 then sender:DelayPrintMessage(HUD_PRINTTALK, "That addon does not have any maps!") end
+                HotloadMap(wsid, function(succ) return end)
+            end
+        end)
+        return
+    end)
+end)
 
 local matchedDirs = {}
 local function recurseListContents(path, first) -- this is from example #2, won't let me link it properly https://wiki.facepunch.com/gmod/file.Find#example
@@ -343,19 +389,7 @@ end)
 --[[---------------
     Storage cleanup
 -----------------]]
-local ENV = file.Exists("mapvote/ENV.json", "DATA")
-if not ENV then
-    file.Write("mapvote/ENV.json", util.TableToJSON({
-        SERVER_URL = "", -- https://gamecp.physgun.com/server/XXXXXXXX <--
-        ACCOUNTTOKEN = "" -- get this at https://gamecp.physgun.com/account/security and paste it here
-    }))
-end
-
 local color_red = Color(255, 0, 0)
-ENV = util.JSONToTable(file.Read("mapvote/ENV.json", "DATA"))
-local SERVER_TOKEN = ENV.ACCOUNTTOKEN -- this is used to delete lingering hotloaded gmas in cache/scrds and steam_cache
-local SERVER_URL = ENV.SERVER_URL -- this is used for the api links
-local WISPED = (SERVER_TOKEN and SERVER_TOKEN ~= "") and (SERVER_URL and SERVER_URL ~= "") -- assumption on if the player is able to use WISP (Notion) api properly
 local function DeleteLingeringHotloadedGMAs()
     if (not SERVER_URL or SERVERURL == "") or (not SERVER_TOKEN or SERVER_TOKEN == "") then
         local FilePath = debug.getinfo(function() end).short_src
@@ -418,16 +452,65 @@ local debugging = false -- remove this after testing
 local RTV = MapVote.RTV
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     local conf = MapVote.GetConfig()
-    if not wsid then return false, "You must nominate a workshop id!" end
-    if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then return false, "You need more players before you can nominate a map!" end
-    if debugging ~= true and ply.LastVote == mapname then return false, "Already voted for this map!" end
-    if conf.EnableNomination == false then return false, "Nomination is disabled!" end
-    if conf.NominateWait >= CurTime() then return false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!" end
-    if GetGlobalBool("In_Voting") then return false, "There is currently a vote in progress!" end
-    if MapVote.state.isInProgress then return false, "There is already a vote in progress" end
-    local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
-    if table.Count(PossibleMaps) - 1 == 0 then return false, "That addon does not have any maps!" end
-    if mapname and not PossibleMaps[mapname] then return false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or "") end
+    if not wsid then
+        ugccallback(false, "You must nominate a workshop id!")
+        return
+    end
+
+    if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then
+        ugccallback(false, "You need more players before you can nominate a map!")
+        return
+    end
+
+    if debugging ~= true and ply.LastVote == mapname then
+        ugccallback(false, "Already voted for this map!")
+        return
+    end
+
+    if conf.EnableNomination == false then
+        ugccallback(false, "Nomination is disabled!")
+        return
+    end
+
+    if conf.NominateWait >= CurTime() then
+        ugccallback(false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!")
+        return
+    end
+
+    if GetGlobalBool("In_Voting") then
+        ugccallback(false, "There is currently a vote in progress!")
+        return
+    end
+
+    if MapVote.state.isInProgress then
+        ugccallback(false, "There is already a vote in progress")
+        return
+    end
+
+    steamworks.FileInfo(wsid, function(data)
+        if not data or data.error then
+            ugccallback(false, "Workshop ID errored or is not a valid ID")
+            return
+        end
+
+        if data.size > conf.NominateMaxSizeBytes then
+            ugccallback(false, "That addon is " .. data.size - conf.NominateMaxSizeBytes .. " bytes larger than the maxsize " .. conf.NominateMaxSizeBytes)
+            return
+        end
+
+        local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
+        if table.Count(PossibleMaps) - 1 == 0 then
+            ugccallback(false, "That addon does not have any maps!")
+            return
+        end
+
+        if mapname and not PossibleMaps[mapname] then
+            ugccallback(false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+            return
+        end
+
+        ugccallback(true)
+    end)
     --[[
     -- This isnt needed because "That addon does not have any maps!" return (should) captures this earlier
     steamworks.FileInfo(wsid, function(data)
@@ -518,37 +601,23 @@ end
 
 function Nominate.Map(ply, wsid, mapname)
     if not IsValid(ply) then return end
-    local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
-    if table.Count(PossibleMaps) - 1 > 1 and not mapname then
-        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5 and 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
-        return
-    elseif table.Count(PossibleMaps) - 1 == 1 then
-        mapname = firstmap
-    end
+    Nominate.CanVote(ply, wsid, mapname, function(can, err)
+        if can == false or can == nil then
+            ply:DelayPrintMessage(HUD_PRINTTALK, err)
+            return
+        elseif can == true then
+            local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
+            if table.Count(PossibleMaps) - 1 > 1 and not mapname then
+                ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5 and 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+                return
+            elseif table.Count(PossibleMaps) - 1 == 1 then
+                mapname = firstmap
+            end
 
-    local can, err = Nominate.CanVote(ply, wsid, mapname)
-    if can == false then
-        ply:DelayPrintMessage(HUD_PRINTTALK, err)
-        return
-    else
-        --[[
-     local PossibleChoiceCommands = {} -- !gm_map1, !gm_map2, !gm_map3
-        if #PossibleMaps > 1 then
-            ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Choose which one you'd like to nominate by saying it.\nAvailable maps: \n" .. table.concat(PossibleMaps, "\n"))
-                Nominate.AddHook("PlayerSay", "GetMultiMapNominationChoice", function(sender, text, _)
-                    print(sender, ply)
-                    if sender == ply and PossibleChoiceCommands[text] then --
-                        ChosenMapName = text
-                    end
-                end)
-            --
-        else
-            ChosenMapName = PossibleMaps[1]
+            Nominate.AddVote(ply, wsid, mapname)
+            Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
         end
-        --]]
-        Nominate.AddVote(ply, wsid, mapname)
-        Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
-    end
+    end)
 end
 
 RTV.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
