@@ -1,3 +1,4 @@
+
 --[[-----------------
     Useful functions
 -------------------]]
@@ -272,6 +273,72 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     end
 end)
 
+--[[---------------
+    Storage cleanup
+-----------------]]
+local ENV, _ = file.Find("mapvote/env.txt", "DATA")
+if not ENV then
+    file.Write("mapvote/env.txt", {
+        SERVER_URL = "", -- https://gamecp.physgun.com/server/XXXXXXXX <--
+        ACCOUNTTOKEN = "" -- get this at https://gamecp.physgun.com/account/security and paste it here
+    })
+end
+
+local color_red = Color(255, 0, 0)
+ENV = util.JSONToTable(file.Read("mapvote/env.txt", "DATA"))
+local SERVER_TOKEN = ENV.ACCOUNTTOKEN -- this is used to delete lingering hotloaded gmas in cache/scrds and steam_cache
+local SERVER_URL = ENV.SERVER_URL -- this is used for the api links
+local function DeleteLingeringHotloadedGMAs()
+    if not SERVER_URL or not SERVER_TOKEN then
+        local FilePath = debug.getinfo(function() end).short_src
+        MsgC(color_red, "SERVER_URL / ACCOUNTTOKEN not provided, returning.\nThis means you will have to manually delete the gma files accumulated in cache/scrds and steam_cache, since the script can't do it for you.\nRead the top of the file @ " .. FilePath .. " for links on how to get them\n")
+        return
+    end
+
+    local HTTPTable = {
+        method = "POST",
+        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/files/delete",
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/vnd.wisp.v1+json",
+            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+        },
+        parameters = {},
+        failed = function(reason) print("HTTP request failed", reason) end,
+        success = function(code_2, body_2, headers_2)
+            if code_2 == 204 then
+                print("Deleted successfully")
+            else
+                print("Bad response: ", code_2, body_2)
+            end
+        end,
+    }
+
+    local HotloadedWSIDsQuery = sql.QueryTyped("SELECT DISTINCT wsid FROM hotloaded_maps")
+    if HotloadedWSIDsQuery ~= false then
+        local i = 1
+        local step = 1
+        timer.Create("DeleteHotloadedGMAsThroughAPI", 1, table.Count(HotloadedWSIDsQuery) * 2, function()
+            -- This timer is bad! However, not sure how to tell the API to delete multiple paths. Wasted 1 hour trying to figure it out.
+            local tbl = HotloadedWSIDsQuery[step]
+            local cachepath = "/garrysmod/cache/srcds/" .. tbl["wsid"] .. ".gma"
+            local steam_cachepath = "/steam_cache/content/4000/" .. tbl["wsid"]
+            if i % 2 ~= 0 then
+                print("deleting " .. cachepath)
+                HTTPTable.parameters["paths[0]"] = cachepath
+            else
+                print("deleting " .. steam_cachepath)
+                HTTPTable.parameters["paths[0]"] = steam_cachepath
+                step = step + 1
+            end
+
+            HTTP(HTTPTable)
+            i = i + 1
+        end)
+    end
+end
+
+hook.Add("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeringHotloadedGMAs)
 --[[---------------
     Chat commands
 -----------------]]
