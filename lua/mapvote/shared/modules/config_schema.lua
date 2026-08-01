@@ -27,6 +27,7 @@ local schema = SV.Object {
     EnableNomination = SV.Bool(),
     NominateWait = SV.Number(),
     NominatePercentPlayersRequired = SV.Number { min = 0, max = 1 },
+    NominateMaxSizeBytes = SV.Int { min = 1 },
 }
 
 local default = {
@@ -53,7 +54,8 @@ local default = {
     MapConfig = {},
     EnableNomination = false,
     NominateWait = 60,
-    NominatePercentPlayersRequired = 0.66
+    NominatePercentPlayersRequired = 0.66,
+    NominateMaxSizeBytes = 500000000,
 }
 
 MapVote.configSchema = schema
