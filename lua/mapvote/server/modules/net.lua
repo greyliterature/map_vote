@@ -26,12 +26,47 @@ MapVote.Net.receiveWithMiddleware( "MapVote_RequestConfig", function( _, ply )
 end, MapVote.Net.requirePermission( MapVote.PermCanConfigure ) )
 
 MapVote.Net.receiveWithMiddleware( "MapVote_Config", function()
-    local err = MapVote.SetConfig( net.ReadTable() )
+    local newConfig = net.ReadTable()
+    local oldConfig = MapVote.GetConfig()
+    local err = MapVote.SetConfig( newConfig )
     if err ~= nil then
         print( "MapVote: Config is invalid: " .. err )
         -- TODO return this to client
     end
-
+    local done = {}
+    local differences = {}
+    local upperusekey = {}
+    local function checkDifferences(tbl, comparetbl)
+        differences = differences or {}
+        done = done or {}
+        done[tbl] = true
+        local keys = table.GetKeys(tbl)
+        local comparekeys = table.GetKeys(tbl)
+        for i = 1, #keys do
+            local key = keys[i]
+            local value = tbl[key]
+            if istable(value) and not done[value] then
+                done[value] = true
+                upperusekey[value] = true
+                checkDifferences(value, comparetbl)
+                done[value] = nil
+                upperusekey[value] = nil
+                --break
+            end
+            if value ~= comparetbl[comparekeys[i]] then
+                local from = comparetbl[comparekeys[i]]
+                local to = value
+                differences[key] = {from, to}
+                --print(key .. " changed from " .. tostring(comparetbl[comparekeys[i]]) .. " to " .. tostring(value))
+            end
+        end
+        return differences
+    end
+    for key, tbl in pairs(checkDifferences(newConfig, oldConfig)) do
+        local from = tbl[1]
+        local to = tbl[2]
+        hook.Run("MapVote_ConfigValueChanged", key, from, to)
+    end
     MapVote.SaveConfigToFile( MapVote.defaultConfigFilename )
 end, MapVote.Net.requirePermission( MapVote.PermCanConfigure ) )
 
