@@ -413,7 +413,7 @@ Nominate.AddHook("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeri
 --Pretty much just near copies of 
 -- https://github.com/greyliterature/map_vote/blob/c5a8930302c9f53f0230409e845a9e8fc1f6aa3d/lua/mapvote/server/modules/rtv.lua#L127-L157
 -- since those functions do the job pretty well already
-local debugging = true -- remove this after testing
+local debugging = false -- remove this after testing
 --
 local RTV = MapVote.RTV
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
