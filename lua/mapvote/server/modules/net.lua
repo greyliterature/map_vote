@@ -36,7 +36,7 @@ MapVote.Net.receiveWithMiddleware( "MapVote_Config", function()
     local done = {}
     local differences = {}
     local upperusekey = {}
-    local function checkDifferences(tbl, comparetbl)
+    local function checkDifferences(tbl, comparetbl) -- using some of the same logic as https://github.com/Facepunch/garrysmod/blob/19fb8a0e3a51d702ed65ab6d03b3b928eb86e74a/garrysmod/lua/includes/util.lua#L148
         differences = differences or {}
         done = done or {}
         done[tbl] = true
