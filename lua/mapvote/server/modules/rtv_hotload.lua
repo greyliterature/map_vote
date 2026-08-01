@@ -1,4 +1,44 @@
 --[[-----------------
+    Init
+-------------------]]
+local Nominate = {} -- functions table
+hook.Add("MapVote_ConfigValueChanged", "RunEverythingOnEnableNominationsToggle", function(key, to, from)
+    if key ~= "EnableNomination" then return end
+    local FilePath = debug.getinfo(function() end).short_src
+    local ThisFile = string.match(FilePath, "lua/(.+)")
+    include(ThisFile)
+end)
+
+_G["NOMINATE_HOOKS"] = _G["NOMINATE_HOOKS"] or {}
+if MapVote.GetConfig().EnableNomination == false then
+    for i = #NOMINATE_HOOKS, 1, -1 do
+        local hookname = NOMINATE_HOOKS[i][1]
+        local identifier = NOMINATE_HOOKS[i][2]
+        hook.Remove(hookname, identifier)
+        print("removed hook ", hookname, identifier)
+        NOMINATE_HOOKS[hookname] = nil
+    end
+    return
+end
+
+function Nominate.AddHook(hookname, identifier, func) -- so that the hooks can be cleared easily when conf.EnableNomination is set to false
+    if not hookname then
+        error("no hookname")
+    elseif not identifier then
+        error("no identifier")
+    end
+
+    hook.Add(hookname, identifier, func)
+    for i = 1, #NOMINATE_HOOKS do
+        if NOMINATE_HOOKS[i][1] == hookname and NOMINATE_HOOKS[i][2] == identifier then -- the hook is already in the table, stop spamming entries into the table
+            return
+        end
+    end
+
+    NOMINATE_HOOKS[#NOMINATE_HOOKS + 1] = {hookname, identifier}
+end
+
+--[[-----------------
     Useful functions
 -------------------]]
 local function DelayPrintMessage(HUDTYPE, message)
@@ -244,7 +284,7 @@ local function recurseListContents(path, first) -- this is from example #2, won'
     return matchedFiles, matchedDirs
 end
 
-hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
+Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     if (RealTime() < 30 and game.IsDedicated() == true) or (game.IsDedicated() == false and game.GetMapChangeCount() == 1) then -- if realtime is less than 30 the server recently started, therefore
         -- the table recording mounted gmas / hotloaded_maps doesn't matter, so
         -- delete that table so it doesn't grow too large. 
@@ -366,17 +406,16 @@ local function DeleteLingeringHotloadedGMAs()
     end
 end
 
-hook.Add("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeringHotloadedGMAs)
+Nominate.AddHook("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeringHotloadedGMAs)
 --[[---------------
     Chat commands
 -----------------]]
 --Pretty much just near copies of 
 -- https://github.com/greyliterature/map_vote/blob/c5a8930302c9f53f0230409e845a9e8fc1f6aa3d/lua/mapvote/server/modules/rtv.lua#L127-L157
 -- since those functions do the job pretty well already
-local debugging = false -- remove this after testing
+local debugging = true -- remove this after testing
 --
 local RTV = MapVote.RTV
-local Nominate = {} -- functions table
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     local conf = MapVote.GetConfig()
     if not wsid then return false, "You must nominate a workshop id!" end
@@ -496,7 +535,7 @@ function Nominate.Map(ply, wsid, mapname)
      local PossibleChoiceCommands = {} -- !gm_map1, !gm_map2, !gm_map3
         if #PossibleMaps > 1 then
             ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Choose which one you'd like to nominate by saying it.\nAvailable maps: \n" .. table.concat(PossibleMaps, "\n"))
-                hook.Add("PlayerSay", "GetMultiMapNominationChoice", function(sender, text, _)
+                Nominate.AddHook("PlayerSay", "GetMultiMapNominationChoice", function(sender, text, _)
                     print(sender, ply)
                     if sender == ply and PossibleChoiceCommands[text] then --
                         ChosenMapName = text
@@ -513,7 +552,7 @@ function Nominate.Map(ply, wsid, mapname)
 end
 
 RTV.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
-hook.Add("PlayerSay", "Nominate Chat Command", function(ply, text)
+Nominate.AddHook("PlayerSay", "Nominate Chat Command", function(ply, text)
     text = string.lower(text)
     args = string.Explode(" ", text) -- !command -> 123, true, false <-
     cmd = args[1] -- !command
@@ -545,7 +584,7 @@ function Nominate.IsMapNominated(map) -- no .bsp
     return false
 end
 
-hook.Add("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
+Nominate.AddHook("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
     if #NominatedMaps == 0 then return end
     local mapsInVote = {}
     local maps = MapVote.getMapList()
@@ -573,7 +612,7 @@ hook.Add("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
     return mapsInVote
 end)
 
-hook.Add("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
+Nominate.AddHook("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
     for _, tbl in ipairs(NominatedMaps) do
         local mapname = tbl[2]
         if mapname == map then --
@@ -582,7 +621,7 @@ hook.Add("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
     end
 end)
 
-hook.Add("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
+Nominate.AddHook("MapVote_VoteFinished", "ChangeMapOnMount", function(resultstable)
     --
     if #NominatedMaps == 0 then return end
     local winningmap = resultstable.state.currentMaps[resultstable.winner]
