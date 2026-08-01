@@ -26,9 +26,10 @@ local configMenuOptions = {
     { "Disable a map after its played",                                          schema.fields.EnableCooldown,              "EnableCooldown" },
     { "The amount of maps that need to be played before a map is enabled again", schema.fields.MapsBeforeRevote,            "MapsBeforeRevote" },
     { seperator = true,                                                          text = "Hotloading"},
-    { "Allow !nominate command for hotloading maps",                             schema.fields.EnableNomination,            "AllowNomination"},
+    { "Allow !nominate command for hotloading maps",                             schema.fields.EnableNomination,            "EnableNomination"},
     { "The time !nominate is disabled after a map change in seconds",            schema.fields.NominateWait,                "NominateWait"},
-    { "Percentage of players who need to nominate a map for it to be added to map list", schema.fields.NominatePercentPlayersRequired, "NominatePercentPlayersRequired"}
+    { "Percentage of players who need to nominate a map for it to be added to map list", schema.fields.NominatePercentPlayersRequired, "NominatePercentPlayersRequired"},
+    { "Maximum size (in bytes) for nominated maps (default = 50 MB)",            schema.fields.NominateMaxSizeBytes,        "NominateMaxSizeBytes" },
 }
 
 MapVote._mapconfigFrame = nil
