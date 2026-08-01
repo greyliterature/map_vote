@@ -234,7 +234,7 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
         -- if the server / game is recently up, we can safely remove all the gmas (since they are not mounted anymore). 
         -- we cannot remove a map's gma right after changeleveling to it unfortunately, because mounting a gma makes it open until the game is closed.
         local PathsToDelete, DirsToDelete = recurseListContents("strippedhotloadgmas/")
-        for _, filepath in PathsToDelete do
+        for _, filepath in ipairs(PathsToDelete) do
             file.Delete(filepath)
             --print("deleted " .. filepath)
         end
@@ -279,16 +279,16 @@ end)
 --[[---------------
     Storage cleanup
 -----------------]]
-local ENV, _ = file.Find("mapvote/env.txt", "DATA")
+local ENV = file.Exists("mapvote/ENV.json", "DATA")
 if not ENV then
-    file.Write("mapvote/env.txt", {
+    file.Write("mapvote/ENV.json", util.TableToJSON({
         SERVER_URL = "", -- https://gamecp.physgun.com/server/XXXXXXXX <--
         ACCOUNTTOKEN = "" -- get this at https://gamecp.physgun.com/account/security and paste it here
-    })
+    }))
 end
 
 local color_red = Color(255, 0, 0)
-ENV = util.JSONToTable(file.Read("mapvote/env.txt", "DATA"))
+ENV = util.JSONToTable(file.Read("mapvote/ENV.json", "DATA"))
 local SERVER_TOKEN = ENV.ACCOUNTTOKEN -- this is used to delete lingering hotloaded gmas in cache/scrds and steam_cache
 local SERVER_URL = ENV.SERVER_URL -- this is used for the api links
 local function DeleteLingeringHotloadedGMAs()
@@ -355,12 +355,12 @@ local Nominate = {} -- functions table
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     local conf = MapVote.GetConfig()
     if not wsid then return false, "You must nominate a workshop id!" end
+    if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then return false, "You need more players before you can nominate a map!" end
     if debugging ~= true and ply.LastVote == mapname then return false, "Already voted for this map!" end
     if conf.EnableNomination == false then return false, "Nomination is disabled!" end
     if conf.NominateWait >= CurTime() then return false, "You must wait " .. string.NiceTime(conf.NominateWait - CurTime()) .. " before voting to nominate a map!" end
     if GetGlobalBool("In_Voting") then return false, "There is currently a vote in progress!" end
     if MapVote.state.isInProgress then return false, "There is already a vote in progress" end
-    if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then return false, "You need more players before you can nominate a map!" end
     local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
     if table.Count(PossibleMaps) - 1 == 0 then return false, "That addon does not have any maps!" end
     if mapname and not PossibleMaps[mapname] then return false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or "") end
@@ -424,14 +424,15 @@ local Nominations = {} -- tracking votes by wsid
 function Nominate.AddVote(ply, wsid, mapname)
     Nominations[mapname] = ((Nominations[mapname] and Nominations[mapname]) or 0) + 1
     ply.LastVote = mapname
-    DelayPrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add wsid " .. wsid .. ", " .. mapname .. " to be added to the RTV list.")
+    local threshold = Nominate.GetThreshold()
+    DelayPrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add wsid " .. wsid .. ", " .. mapname .. " to be added to the RTV list. " .. "(" .. Nominations[mapname] .. "/" .. threshold .. ")")
 end
 
-function Nominate.MapShouldAdd(wsid)
+function Nominate.MapShouldAdd(wsid, mapname)
     if MapVote.state.isInProgress then return end
     if debugging == true then return true end
     local conf = MapVote.GetConfig()
-    local totalVotes = Nominations[wsid]
+    local totalVotes = Nominations[mapname]
     local totalPlayers = RTV.GetPlayerCount()
     if totalPlayers < conf.RTVPlayerCount then return end
     if totalPlayers == 0 then return end
@@ -455,7 +456,7 @@ function Nominate.Map(ply, wsid, mapname)
     if not IsValid(ply) then return end
     local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
     if table.Count(PossibleMaps) - 1 > 1 and not mapname then
-        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+        ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5 and 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
         return
     elseif table.Count(PossibleMaps) - 1 == 1 then
         mapname = firstmap
@@ -502,44 +503,50 @@ end)
 --[[---------------
     Detours
 -----------------]]
-MapVote._maps = nil
-function MapVote.getMapList() -- need to make the original function work with hotload
-    if MapVote._maps then return MapVote._maps end
-    local maps = file.Find("maps/*.bsp", "GAME")
-    local ValidMaps = {}
-    local tblexists = sql.TableExists("hotloaded_maps")
-    for i, v in ipairs(maps) do
-        local mapname = string.sub(v, 1, -5)
-        if tblexists == true then
-            local CheckIfCurrentMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", v) -- move this to FindMapWorkshopID() later probably
-            if CheckIfCurrentMapIsInSQLTable == false then
-                ErrorNoHaltWithStack("CheckIfCurrentMapIsInSQLTable failed" .. (sql.LastError() or ""))
-                continue
-            end
-
-            if CheckIfCurrentMapIsInSQLTable[1] then
-                --print("not adding " .. mapname .. " to rtv list.")
-                continue
-            end
-        end
-
-        table.insert(ValidMaps, mapname) -- strip .bsp
+Nominate._maps = nil
+function Nominate.IsMapNominated(map) -- no .bsp
+    local CheckIfMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", map)
+    if CheckIfMapIsInSQLTable == false then
+        ErrorNoHaltWithStack("CheckIfMapIsInSQLTable failed" .. (sql.LastError() or ""))
+        return
     end
 
-    local conf = MapVote.GetConfig()
-    if conf.EnableNomination == true then
-        for i, tbl in ipairs(NominatedMaps) do
-            local IndexToRemove = #ValidMaps - i
-            table.remove(ValidMaps, IndexToRemove)
-            print("removed " .. IndexToRemove .. " from maps list.")
-            local mapname = tbl[2]
-            table.insert(ValidMaps, mapname)
-        end
+    if CheckIfMapIsInSQLTable[1] and CurrentMapIsNominated == false then return true end
+    for i = 1, #NominatedMaps do
+        local tbl = NominatedMaps[i]
+        local mapname = tbl[2]
+        if mapname == map then return true end
     end
-
-    MapVote._maps = ValidMaps
-    return ValidMaps
+    return false
 end
+
+hook.Add("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
+    if #NominatedMaps == 0 then return end
+    local mapsInVote = {}
+    local maps = MapVote.getMapList()
+    local MapCount = 1
+    for _, map in RandomPairs(maps) do
+        if Nominate.IsMapNominated(map) then
+            print(map .. " is nominated, not adding to original maps table")
+            continue
+        end
+
+        table.insert(mapsInVote, map)
+        MapCount = MapCount + 1
+        if MapCount > MapVote.config.MapLimit - #NominatedMaps then
+            print("stopped adding non nominated maps past " .. MapCount)
+            break
+        end
+    end
+
+    for i = 1, #NominatedMaps do
+        local tbl = NominatedMaps[i]
+        local mapname = tbl[2]
+        print("adding nominated map " .. mapname .. " to votemap table")
+        table.insert(mapsInVote, mapname)
+    end
+    return mapsInVote
+end)
 
 hook.Add("MapVote_ChangeMap", "DelayMapChangeIfHotloaded", function(map)
     for _, tbl in ipairs(NominatedMaps) do
