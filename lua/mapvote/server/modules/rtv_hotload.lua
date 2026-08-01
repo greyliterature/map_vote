@@ -225,8 +225,11 @@ hook.Add("InitPostEntity", "AddWorkshopForHotloadedMap", function()
         -- the table recording mounted gmas / hotloaded_maps doesn't matter, so
         -- delete that table so it doesn't grow too large. 
         -- the game.IsDedicated check is for listen servers. (since gmas never unmount, even when a listenserver gets shut down, to my knowledge).
-        sql.QueryTyped("TRUNCATE TABLE IF EXISTS hotloaded_maps")
-        print("deleted hotloaded_maps table, server recently started")
+        if sql.TableExists("hotloaded_maps") then
+            sql.QueryTyped("DELETE FROM hotloaded_maps")
+            print("deleted hotloaded_maps table, server recently started")
+        end
+
         --
         -- if the server / game is recently up, we can safely remove all the gmas (since they are not mounted anymore). 
         -- we cannot remove a map's gma right after changeleveling to it unfortunately, because mounting a gma makes it open until the game is closed.
