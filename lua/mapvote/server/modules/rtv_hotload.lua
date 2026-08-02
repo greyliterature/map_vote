@@ -114,6 +114,7 @@ local Blacklist = {
     png = true,
     properties = true,
     ttf = true,
+    nav = true,
 }
 
 local function IsExtensionBlacklisted(extension)
@@ -229,6 +230,7 @@ function steamworks.DownloadUGC_CACHED(wsid, callback)
     end
 
     print("downloading new " .. wsid)
+    sql.QueryTyped("INSERT INTO hotloaded_maps (mapname, wsid) VALUES (?, ?)", "", wsid) -- always write the wsid so that it gets deleted later
     steamworks.DownloadUGC(wsid, function(path, fileobject)
         DownloadedPathsCache[wsid] = path
         PrintTable(DownloadedPathsCache)
@@ -299,7 +301,7 @@ hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
             elseif not data then
                 sender:DelayPrintMessage(HUD_PRINTTALK, "Must provide a valid workshop ID")
             else
-                local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
+                local PossibleMaps, _ = Nominate.GetMapsFromAddon(wsid)
                 if table.Count(PossibleMaps) - 1 == 0 then sender:DelayPrintMessage(HUD_PRINTTALK, "That addon does not have any maps!") end
                 HotloadMap(wsid, function(succ) return end)
             end
@@ -307,6 +309,147 @@ hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
         return
     end)
 end)
+
+local function Clear_app_workshop_OfLingeringWSID(wsid)
+    local appworkshop_4000 = nil
+    local HTTPTable = {
+        method = "GET",
+        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/files/read",
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/vnd.wisp.v1+json",
+            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+        },
+        parameters = {
+            ["path"] = "/steam_cache/appworkshop_4000.acf"
+        },
+        failed = function(reason) print("HTTP request failed", reason) end,
+        success = function(code, body, headers)
+            if code ~= 200 then
+                print("Bad response: ", code, body)
+            else
+                appworkshop_4000 = util.JSONToTable(body).content
+                --appworkshop_4000 = string.Replace(appworkshop_4000, "\\t", "\t")
+                --appworkshop_4000 = string.Replace(appworkshop_4000, "\\n", "\n")
+                --
+                local copy = ""
+                local WithinTable = false
+                for linenumber, line in ipairs(string.Split(appworkshop_4000, "\n")) do
+                    if string.find(line, wsid) then --string.find(line, "\\\"" .. wsid .. "\\\"") == true then
+                        WithinTable = true
+                        CountSinceCloser = 0
+                    end
+
+                    if string.find(line, "}", nil, nil, true) and WithinTable == true then -- closer
+                        line = "" --line .. "VERYEASYTOSPOTTEXT1234567890"
+                        WithinTable = false
+                    end
+
+                    if WithinTable == true then
+                        line = "" --line .. "VERYEASYTOSPOTTEXT1234567890"
+                    end
+
+                    copy = copy .. "\n" .. line
+                    --print(line)
+                end
+
+                if copy ~= "" then
+                    HTTP({
+                        method = "POST",
+                        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/files/write",
+                        headers = {
+                            ["Content-Type"] = "application/json",
+                            ["Accept"] = "application/vnd.wisp.v1+json",
+                            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+                        },
+                        parameters = {
+                            ["path"] = "/steam_cache/appworkshop_4000.acf",
+                            ["content"] = copy,
+                        },
+                        failed = function(reason) print("HTTP request failed", reason) end,
+                        success = function(code_2, body_2, headers_2)
+                            if code ~= 200 then
+                                print("Bad response: ", code, body)
+                            else
+                                print("Overwrote app_workshop for " .. wsid .. "successfully")
+                            end
+                        end,
+                    })
+                end
+            end
+        end,
+    }
+
+    HTTP(HTTPTable)
+end
+
+local color_red = Color(255, 0, 0)
+local function DeleteLingeringHotloadedGMAs()
+    if RealTime() > 30 then
+        print("Not deleting, server did not recently start.")
+        return
+    end
+
+    if (not SERVER_URL or SERVERURL == "") or (not SERVER_TOKEN or SERVER_TOKEN == "") then
+        local FilePath = debug.getinfo(function() end).short_src
+        MsgC(color_red, "SERVER_URL / ACCOUNTTOKEN not provided, returning.\nThis means you will have to manually delete the gma files accumulated in cache/scrds and steam_cache, since the script can't do it for you.\nRead the top of the file @ " .. FilePath .. " for links on how to get them\n")
+        return
+    end
+
+    local HTTPTable = {
+        method = "POST",
+        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/files/delete",
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/vnd.wisp.v1+json",
+            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+        },
+        parameters = {},
+        failed = function(reason) print("HTTP request failed", reason) end,
+        success = function(code_2, body_2, headers_2)
+            if code_2 == 204 then
+                print("Deleted successfully")
+            else
+                print("Bad response: ", code_2, body_2)
+            end
+        end,
+    }
+
+    local HotloadedWSIDsQuery = sql.QueryTyped("SELECT DISTINCT wsid FROM hotloaded_maps")
+    if HotloadedWSIDsQuery ~= false then
+        PrintTable(HotloadedWSIDsQuery)
+        local i = 1
+        local step = 1
+        if table.Count(HotloadedWSIDsQuery) > 0 then
+            print("Running!")
+            timer.Create("DeleteHotloadedGMAsThroughAPI", 1, table.Count(HotloadedWSIDsQuery) * 2, function()
+                -- This timer is bad! However, not sure how to tell the API to delete multiple paths. Wasted 1 hour trying to figure it out.
+                local tbl = HotloadedWSIDsQuery[step]
+                if not tbl then
+                    print("tbl step not valid, returning")
+                    PrintTable(HotloadedWSIDsQuery)
+                    return
+                end
+
+                local cachepath = "/garrysmod/cache/srcds/" .. tbl["wsid"] .. ".gma"
+                local steam_cachepath = "/steam_cache/content/4000/" .. tbl["wsid"]
+                if i % 2 ~= 0 then
+                    print("deleting " .. cachepath)
+                    HTTPTable.parameters["paths[0]"] = cachepath
+                else
+                    print("deleting " .. steam_cachepath .. tbl["wsid"])
+                    Clear_app_workshop_OfLingeringWSID(tbl["wsid"])
+                    sql.QueryTyped("DELETE FROM hotloaded_maps WHERE wsid = ?", tbl["wsid"])
+                    HTTPTable.parameters["paths[0]"] = steam_cachepath
+                    step = step + 1
+                end
+
+                HTTP(HTTPTable)
+                i = i + 1
+            end)
+        end
+    end
+end
 
 local matchedDirs = {}
 local function recurseListContents(path, first) -- this is from example #2, won't let me link it properly https://wiki.facepunch.com/gmod/file.Find#example
@@ -332,14 +475,17 @@ end
 
 Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     if (RealTime() < 30 and game.IsDedicated() == true) or (game.IsDedicated() == false and game.GetMapChangeCount() == 1) then -- if realtime is less than 30 the server recently started, therefore
+        print("deleting lingering hotloaded gmas")
+        DeleteLingeringHotloadedGMAs()
         -- the table recording mounted gmas / hotloaded_maps doesn't matter, so
         -- delete that table so it doesn't grow too large. 
         -- the game.IsDedicated check is for listen servers. (since gmas never unmount, even when a listenserver gets shut down, to my knowledge).
+        --[[
         if sql.TableExists("hotloaded_maps") then
             sql.QueryTyped("DELETE FROM hotloaded_maps")
             print("deleted hotloaded_maps table, server recently started")
         end
-
+        --]]
         --
         -- if the server / game is recently up, we can safely remove all the gmas (since they are not mounted anymore). 
         -- we cannot remove a map's gma right after changeleveling to it unfortunately, because mounting a gma makes it open until the game is closed.
@@ -389,58 +535,6 @@ end)
 --[[---------------
     Storage cleanup
 -----------------]]
-local color_red = Color(255, 0, 0)
-local function DeleteLingeringHotloadedGMAs()
-    if (not SERVER_URL or SERVERURL == "") or (not SERVER_TOKEN or SERVER_TOKEN == "") then
-        local FilePath = debug.getinfo(function() end).short_src
-        MsgC(color_red, "SERVER_URL / ACCOUNTTOKEN not provided, returning.\nThis means you will have to manually delete the gma files accumulated in cache/scrds and steam_cache, since the script can't do it for you.\nRead the top of the file @ " .. FilePath .. " for links on how to get them\n")
-        return
-    end
-
-    local HTTPTable = {
-        method = "POST",
-        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/files/delete",
-        headers = {
-            ["Content-Type"] = "application/json",
-            ["Accept"] = "application/vnd.wisp.v1+json",
-            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
-        },
-        parameters = {},
-        failed = function(reason) print("HTTP request failed", reason) end,
-        success = function(code_2, body_2, headers_2)
-            if code_2 == 204 then
-                print("Deleted successfully")
-            else
-                print("Bad response: ", code_2, body_2)
-            end
-        end,
-    }
-
-    local HotloadedWSIDsQuery = sql.QueryTyped("SELECT DISTINCT wsid FROM hotloaded_maps")
-    if HotloadedWSIDsQuery ~= false then
-        local i = 1
-        local step = 1
-        timer.Create("DeleteHotloadedGMAsThroughAPI", 1, table.Count(HotloadedWSIDsQuery) * 2, function()
-            -- This timer is bad! However, not sure how to tell the API to delete multiple paths. Wasted 1 hour trying to figure it out.
-            local tbl = HotloadedWSIDsQuery[step]
-            local cachepath = "/garrysmod/cache/srcds/" .. tbl["wsid"] .. ".gma"
-            local steam_cachepath = "/steam_cache/content/4000/" .. tbl["wsid"]
-            if i % 2 ~= 0 then
-                print("deleting " .. cachepath)
-                HTTPTable.parameters["paths[0]"] = cachepath
-            else
-                print("deleting " .. steam_cachepath)
-                HTTPTable.parameters["paths[0]"] = steam_cachepath
-                step = step + 1
-            end
-
-            HTTP(HTTPTable)
-            i = i + 1
-        end)
-    end
-end
-
-Nominate.AddHook("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeringHotloadedGMAs)
 --[[---------------
     Chat commands
 -----------------]]
@@ -450,6 +544,7 @@ Nominate.AddHook("InitPostEntity", "DeleteLingeringHotloadedGMAs", DeleteLingeri
 local debugging = false -- remove this after testing
 --
 local RTV = MapVote.RTV
+Nominate.ChatCommands = {}
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     local conf = MapVote.GetConfig()
     if not wsid then
@@ -459,11 +554,6 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
 
     if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then
         ugccallback(false, "You need more players before you can nominate a map!")
-        return
-    end
-
-    if debugging ~= true and ply.LastVote == mapname then
-        ugccallback(false, "Already voted for this map!")
         return
     end
 
@@ -498,9 +588,16 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
             return
         end
 
-        local PossibleMaps = Nominate.GetMapsFromAddon(wsid)
+        local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
         if table.Count(PossibleMaps) - 1 == 0 then
             ugccallback(false, "That addon does not have any maps!")
+            return
+        elseif table.Count(PossibleMaps) - 1 == 1 then
+            mapname = firstmap
+        end
+
+        if debugging ~= true and ply.LastVote == mapname then
+            ugccallback(false, "Already voted for this map!")
             return
         end
 
@@ -620,13 +717,13 @@ function Nominate.Map(ply, wsid, mapname)
     end)
 end
 
-RTV.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
+Nominate.ChatCommands["!nominate"] = function(...) Nominate.Map(...) end
 Nominate.AddHook("PlayerSay", "Nominate Chat Command", function(ply, text)
     text = string.lower(text)
     args = string.Explode(" ", text) -- !command -> 123, true, false <-
     cmd = args[1] -- !command
     table.remove(args, 1)
-    local f = RTV.ChatCommands[cmd]
+    local f = Nominate.ChatCommands[cmd]
     if f then
         f(ply, unpack(args))
         return
