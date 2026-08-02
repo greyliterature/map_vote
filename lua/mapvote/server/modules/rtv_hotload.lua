@@ -133,11 +133,18 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
     file.Write(NewGMAPath .. "/" .. "addon.json", addonjson)
     local files = GMA.Read(filepath, false, "GAME").Files
     local successrequirement = table.Count(files)
+    for k, tbl in ipairs(files) do
+        if IsExtensionBlacklisted(string.GetExtensionFromFilename(tbl.Name)) then
+            successrequirement = successrequirement - 1
+        end
+    end
+  
     local successes = 0
     local ExtensionsToBypass = {}
     for k, tbl in ipairs(files) do
         local OriginalPath = tbl.Name
         local DirectoryPath = string.match(OriginalPath, "^(.*)/[^/]+$")
+        print("Considering writing " .. OriginalPath)
         --[[
         if string.lower(string.sub(DirectoryPath, 1, 3)) == "lua" then
             print("not duplicating " .. DirectoryPath)
@@ -147,10 +154,9 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
         --]]
         if IsExtensionBlacklisted(string.GetExtensionFromFilename(OriginalPath)) then
             print("not duplicating " .. OriginalPath .. ", blacklisted extension")
-            successrequirement = successrequirement - 1
+            --successrequirement = successrequirement - 1
             continue
         end
-
         file.CreateDir(NewGMAPath .. "/" .. DirectoryPath)
         local filename = NewGMAPath .. "/" .. OriginalPath
         for i = 1, #UnwhitelistedExtensions do
@@ -165,7 +171,9 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
         end
 
         local succ = file.Write(filename, "")
+        print("Writing " .. filename)
         if succ then
+            print("Successfully wrote " .. filename)
             local f = file.Open(NewGMAPath .. "/" .. OriginalPath, "wb", "DATA")
             f:Write(tbl.Content)
             f:Close()
