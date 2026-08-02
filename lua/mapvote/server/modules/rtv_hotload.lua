@@ -301,9 +301,10 @@ hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
             elseif not data then
                 sender:DelayPrintMessage(HUD_PRINTTALK, "Must provide a valid workshop ID")
             else
-                local PossibleMaps, _ = Nominate.GetMapsFromAddon(wsid)
-                if table.Count(PossibleMaps) - 1 == 0 then sender:DelayPrintMessage(HUD_PRINTTALK, "That addon does not have any maps!") end
-                HotloadMap(wsid, function(succ) return end)
+                Nominate.GetMapsFromAddon(wsid, function(PossibleMaps, firstmap)
+                    if table.Count(PossibleMaps) - 1 == 0 then sender:DelayPrintMessage(HUD_PRINTTALK, "That addon does not have any maps!") end
+                    HotloadMap(wsid, function(succ) return end)
+                end)
             end
         end)
         return
@@ -588,23 +589,26 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
             return
         end
 
-        local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
-        if table.Count(PossibleMaps) - 1 == 0 then
-            ugccallback(false, "That addon does not have any maps!")
-            return
-        elseif table.Count(PossibleMaps) - 1 == 1 then
-            mapname = firstmap
-        end
+        Nominate.GetMapsFromAddon(wsid, function(PossibleMaps, firstmap)
+            if table.Count(PossibleMaps) - 1 == 0 then
+                print(table.Count(PossibleMaps))
+                PrintTable(PossibleMaps)
+                ugccallback(false, "That addon does not have any maps!")
+                return
+            elseif table.Count(PossibleMaps) - 1 == 1 then
+                mapname = firstmap
+            end
 
-        if debugging ~= true and ply.LastVote == mapname then
-            ugccallback(false, "Already voted for this map!")
-            return
-        end
+            if debugging ~= true and ply.LastVote == mapname then
+                ugccallback(false, "Already voted for this map!")
+                return
+            end
 
-        if mapname and not PossibleMaps[mapname] then
-            ugccallback(false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
-            return
-        end
+            if mapname and not PossibleMaps[mapname] then
+                ugccallback(false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+                return
+            end
+        end)
 
         ugccallback(true)
     end)
@@ -623,7 +627,7 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
 end
 
 local MapCache = {}
-function Nominate.GetMapsFromAddon(wsid)
+function Nominate.GetMapsFromAddon(wsid, ugccallback)
     -- do downloadugc stuff here
     local firstmap = nil
     if MapCache[wsid] then
@@ -632,6 +636,8 @@ function Nominate.GetMapsFromAddon(wsid)
             firstmap = mapname
             break
         end
+
+        ugccallback(MapCache[wsid], firstmap)
     else
         MapCache[wsid] = {}
         MapCache[wsid]["Arrayed"] = {} -- for table.concat, this means that all table.counts of PossibleMaps will have to be subtracted one though.
@@ -650,9 +656,10 @@ function Nominate.GetMapsFromAddon(wsid)
                     continue
                 end
             end
+
+            ugccallback(MapCache[wsid], firstmap)
         end)
     end
-    return MapCache[wsid], firstmap
 end
 
 function Nominate.GetThreshold()
@@ -703,16 +710,17 @@ function Nominate.Map(ply, wsid, mapname)
             ply:DelayPrintMessage(HUD_PRINTTALK, err)
             return
         elseif can == true then
-            local PossibleMaps, firstmap = Nominate.GetMapsFromAddon(wsid)
-            if table.Count(PossibleMaps) - 1 > 1 and not mapname then
-                ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5 and 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
-                return
-            elseif table.Count(PossibleMaps) - 1 == 1 then
-                mapname = firstmap
-            end
+            Nominate.GetMapsFromAddon(wsid, function(PossibleMaps, firstmap)
+                if table.Count(PossibleMaps) - 1 > 1 and not mapname then
+                    ply:DelayPrintMessage(HUD_PRINTTALK, "That addon has multiple maps. Please send command again and specify which map you'd like to nominate (!nominate 12345 gm_mapname).\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5 and 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
+                    return
+                elseif table.Count(PossibleMaps) - 1 == 1 then
+                    mapname = firstmap
+                end
 
-            Nominate.AddVote(ply, wsid, mapname)
-            Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
+                Nominate.AddVote(ply, wsid, mapname)
+                Nominate.AddToMapListIfMapShouldAdd(wsid, mapname)
+            end)
         end
     end)
 end
