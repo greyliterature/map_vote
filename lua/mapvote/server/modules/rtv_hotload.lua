@@ -134,11 +134,9 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
     local files = GMA.Read(filepath, false, "GAME").Files
     local successrequirement = table.Count(files)
     for k, tbl in ipairs(files) do
-        if IsExtensionBlacklisted(string.GetExtensionFromFilename(tbl.Name)) then
-            successrequirement = successrequirement - 1
-        end
+        if IsExtensionBlacklisted(string.GetExtensionFromFilename(tbl.Name)) then successrequirement = successrequirement - 1 end
     end
-  
+
     local successes = 0
     local ExtensionsToBypass = {}
     for k, tbl in ipairs(files) do
@@ -157,6 +155,7 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
             --successrequirement = successrequirement - 1
             continue
         end
+
         file.CreateDir(NewGMAPath .. "/" .. DirectoryPath)
         local filename = NewGMAPath .. "/" .. OriginalPath
         for i = 1, #UnwhitelistedExtensions do
@@ -338,9 +337,6 @@ local function Clear_app_workshop_OfLingeringWSID(wsid)
                 print("Bad response: ", code, body)
             else
                 appworkshop_4000 = util.JSONToTable(body).content
-                --appworkshop_4000 = string.Replace(appworkshop_4000, "\\t", "\t")
-                --appworkshop_4000 = string.Replace(appworkshop_4000, "\\n", "\n")
-                --
                 local copy = ""
                 local WithinTable = false
                 for linenumber, line in ipairs(string.Split(appworkshop_4000, "\n")) do
@@ -359,7 +355,6 @@ local function Clear_app_workshop_OfLingeringWSID(wsid)
                     end
 
                     copy = copy .. "\n" .. line
-                    --print(line)
                 end
 
                 if copy ~= "" then
@@ -552,6 +547,17 @@ end)
 -- since those functions do the job pretty well already
 local debugging = false -- remove this after testing
 --
+local NominationVotes = {} -- [mapname] = {ply1, ply2}
+local function HasVotedForThisMap(ply, mapname)
+    if #NominationVotes == 0 then return end
+    if not NominationVotes[mapname] then return end
+    for playerobj, _ in pairs(NominationVotes[mapname]) do
+        if ply == playerobj then return true end
+        --if map == mapname then return true end
+    end
+    return false
+end
+
 local RTV = MapVote.RTV
 Nominate.ChatCommands = {}
 function Nominate.CanVote(ply, wsid, mapname, ugccallback)
@@ -607,7 +613,7 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
                 mapname = firstmap
             end
 
-            if debugging ~= true and ply.LastVote == mapname then
+            if debugging ~= true and HasVotedForThisMap(ply, mapname) == true then
                 ugccallback(false, "Already voted for this map!")
                 return
             end
@@ -616,9 +622,9 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
                 ugccallback(false, "That addon does not have that map!\nAvailable maps:\n" .. table.concat(PossibleMaps["Arrayed"], "\n", 1, (#PossibleMaps["Arrayed"] > 5) or #PossibleMaps["Arrayed"]) .. ((table.Count(PossibleMaps) - 1 > 5 and "\n(more...)") or ""))
                 return
             end
-        end)
 
-        ugccallback(true)
+            ugccallback(true)
+        end)
     end)
     --[[
     -- This isnt needed because "That addon does not have any maps!" return (should) captures this earlier
@@ -647,9 +653,9 @@ function Nominate.GetMapsFromAddon(wsid, ugccallback)
 
         ugccallback(MapCache[wsid], firstmap)
     else
-        MapCache[wsid] = {}
-        MapCache[wsid]["Arrayed"] = {} -- for table.concat, this means that all table.counts of PossibleMaps will have to be subtracted one though.
         steamworks.DownloadUGC_CACHED(wsid, function(filepath, _)
+            MapCache[wsid] = {}
+            MapCache[wsid]["Arrayed"] = {} -- for table.concat, this means that all table.counts of PossibleMaps will have to be subtracted one though.
             local files = GMA.Read(filepath, false, "GAME").Files
             for k, tbl in ipairs(files) do
                 local OriginalPath = tbl.Name
@@ -682,7 +688,8 @@ local Nominations = {} -- tracking votes by wsid
 -- should make this track maps too. addons add multiple maps at a time sometimes
 function Nominate.AddVote(ply, wsid, mapname)
     Nominations[mapname] = ((Nominations[mapname] and Nominations[mapname]) or 0) + 1
-    ply.LastVote = mapname
+    NominationVotes[mapname] = NominationVotes[mapname] or {}
+    NominationVotes[mapname][ply] = true
     local threshold = Nominate.GetThreshold()
     DelayPrintMessage(HUD_PRINTTALK, ply:Nick() .. " has voted to add wsid " .. wsid .. ", " .. mapname .. " to be added to the RTV list. " .. "(" .. Nominations[mapname] .. "/" .. threshold .. ")")
 end
