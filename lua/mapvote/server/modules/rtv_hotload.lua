@@ -549,7 +549,7 @@ local debugging = false -- remove this after testing
 --
 local NominationVotes = {} -- [mapname] = {ply1, ply2}
 local function HasVotedForThisMap(ply, mapname)
-    if #NominationVotes == 0 then return end
+    if table.Count(NominationVotes) == 0 then return end
     if not NominationVotes[mapname] then return end
     for playerobj, _ in pairs(NominationVotes[mapname]) do
         if ply == playerobj then return true end
