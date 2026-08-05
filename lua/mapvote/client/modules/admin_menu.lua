@@ -30,6 +30,7 @@ local configMenuOptions = {
     { "The time !nominate is disabled after a map change in seconds",            schema.fields.NominateWait,                "NominateWait"},
     { "Percentage of players who need to nominate a map for it to be added to map list", schema.fields.NominatePercentPlayersRequired, "NominatePercentPlayersRequired"},
     { "Maximum size (in bytes) for nominated maps (default = 50 MB)",            schema.fields.NominateMaxSizeBytes,        "NominateMaxSizeBytes" },
+    { "The maximum amount of disk space that nomination files can take up",      schema.fields.NominateByteThreshold,       "NominateByteThreshold" },
 }
 
 MapVote._mapconfigFrame = nil
