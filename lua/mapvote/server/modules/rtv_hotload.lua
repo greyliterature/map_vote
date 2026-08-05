@@ -68,6 +68,41 @@ function PLAYERMETA:DelayPrintMessage(HUDTYPE, message)
     timer.Simple(0, function() self:PrintMessage(HUDTYPE, message) end)
 end
 
+local matchedDirs = {}
+local function recurseListContents(path, first) -- this is from example #2, won't let me link it properly https://wiki.facepunch.com/gmod/file.Find#example
+    -- do not fill in arg[2]! that is for the function itself to fill (could do a local bool above the function instead, but it fulfills its purpose, whatever, maybe later).
+    local files, dirs = file.Find(path .. "*", "DATA")
+    local matchedFiles = {}
+    matchedDirs = (first == nil and {}) or matchedDirs
+    for _, v in ipairs(files) do
+        local fullPath = path .. v
+        table.insert(matchedFiles, fullPath)
+    end
+
+    for _, dir in ipairs(dirs) do
+        local subFiles = select(1, recurseListContents(path .. dir .. "/", false))
+        for _, filepath in ipairs(subFiles) do
+            table.insert(matchedFiles, filepath)
+        end
+
+        table.insert(matchedDirs, path .. dir)
+    end
+    return matchedFiles, matchedDirs
+end
+
+local function DeleteDirectory(filepath)
+    local PathsToDelete, DirsToDelete = recurseListContents(filepath)
+    for _, path in ipairs(PathsToDelete) do
+        file.Delete(filepath)
+        --print("deleted " .. filepath)
+    end
+
+    for _, path in ipairs(DirsToDelete) do -- you cant delete a directory until all of its subfolders and subfiles are deleted, apparently
+        file.Delete(filepath)
+        --print("deleted " .. filepath)
+    end
+end
+
 --[[-----------------
     Rest
 -------------------]]
@@ -186,7 +221,11 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
                 end
 
                 GMA.Create(NewGMAPath .. ".gma", "data" .. "/" .. NewGMAPath, true, false, function(gmapath)
-                    --
+                    print("GMA created, cleaning up work folder strippedhotloadgmas/" .. wsid)
+                    DeleteDirectory("strippedhotloadgmas/" .. wsid)
+                    local NewGMASize = file.Size(string.Replace(gmapath, "data/", ""), "DATA")
+                    DiskLeft = DiskLeft - NewGMASize
+                    print("New GMA size: " .. NewGMASize .. ", Disk left:" .. DiskLeft)
                     callback(gmapath)
                     DelayPrintMessage(HUD_PRINTTALK, "Made " .. gmapath)
                 end, ExtensionsToBypass)
@@ -229,6 +268,7 @@ local function WriteHotloadedMapToSQL(mapname, wsid) -- map name with ".bsp" by 
 end
 
 local DownloadedPathsCache = {}
+local Queued = {} -- wsids that are currently being downloaded, prevents someone from spamming !nominate wsid and making the map download multiple times
 function steamworks.DownloadUGC_CACHED(wsid, callback)
     if DownloadedPathsCache[wsid] then
         print("returning cached wsid: " .. wsid .. ", cached path: " .. DownloadedPathsCache[wsid])
@@ -236,11 +276,30 @@ function steamworks.DownloadUGC_CACHED(wsid, callback)
         return
     end
 
+    if Queued[wsid] then
+        print(wsid .. " is already queued for download, returning")
+        return
+    end
+
     print("downloading new " .. wsid)
+    local conf = MapVote.GetConfig()
+    if DiskLeft - data.size < conf.NominateByteThreshold then
+        print(wsid .. " is " .. (conf.NominateByteThreshold - DiskLeft - data.size) .. " over the disk threshold, returning")
+        return
+    end
+
+    Queued[wsid] = true
     sql.QueryTyped("INSERT INTO hotloaded_maps (mapname, wsid) VALUES (?, ?)", "", wsid) -- always write the wsid so that it gets deleted later
     steamworks.DownloadUGC(wsid, function(path, fileobject)
+        if WISPED == true then --
+            steamworks.FileInfo(wsid, function(result)
+                DiskLeft = DiskLeft - result.size
+                print("Disk left: " .. DiskLeft)
+            end)
+        end
+
         DownloadedPathsCache[wsid] = path
-        PrintTable(DownloadedPathsCache)
+        Queued[wsid] = nil
         callback(path, fileobject)
     end)
 end
@@ -394,7 +453,7 @@ local function DeleteLingeringHotloadedGMAs()
         return
     end
 
-    if (not SERVER_URL or SERVERURL == "") or (not SERVER_TOKEN or SERVER_TOKEN == "") then
+    if WISPED ~= true then
         local FilePath = debug.getinfo(function() end).short_src
         MsgC(color_red, "SERVER_URL / ACCOUNTTOKEN not provided, returning.\nThis means you will have to manually delete the gma files accumulated in cache/scrds and steam_cache, since the script can't do it for you.\nRead the top of the file @ " .. FilePath .. " for links on how to get them\n")
         return
@@ -421,12 +480,10 @@ local function DeleteLingeringHotloadedGMAs()
 
     local HotloadedWSIDsQuery = sql.QueryTyped("SELECT DISTINCT wsid FROM hotloaded_maps")
     if HotloadedWSIDsQuery ~= false then
-        PrintTable(HotloadedWSIDsQuery)
         local i = 1
         local step = 1
         if table.Count(HotloadedWSIDsQuery) > 0 then
-            print("Running!")
-            timer.Create("DeleteHotloadedGMAsThroughAPI", 1, table.Count(HotloadedWSIDsQuery) * 2, function()
+            timer.Create("DeleteHotloadedGMAsThroughAPI", 0.5, table.Count(HotloadedWSIDsQuery) * 3, function()
                 -- This timer is bad! However, not sure how to tell the API to delete multiple paths. Wasted 1 hour trying to figure it out.
                 local tbl = HotloadedWSIDsQuery[step]
                 if not tbl then
@@ -437,15 +494,19 @@ local function DeleteLingeringHotloadedGMAs()
 
                 local cachepath = "/garrysmod/cache/srcds/" .. tbl["wsid"] .. ".gma"
                 local steam_cachepath = "/steam_cache/content/4000/" .. tbl["wsid"]
-                if i % 2 ~= 0 then
+                local steamapps_path = "/steamapps/workshop/content/4000/" .. tbl["wsid"]
+                if i % 3 ~= 1 then
                     print("deleting " .. cachepath)
                     HTTPTable.parameters["paths[0]"] = cachepath
-                else
+                elseif i % 3 == 2 then
                     print("deleting " .. steam_cachepath .. tbl["wsid"])
                     Clear_app_workshop_OfLingeringWSID(tbl["wsid"])
-                    sql.QueryTyped("DELETE FROM hotloaded_maps WHERE wsid = ?", tbl["wsid"])
                     HTTPTable.parameters["paths[0]"] = steam_cachepath
                     step = step + 1
+                elseif i % 3 == 0 then
+                    print("deleting " .. steamapps_path .. tbl["wsid"])
+                    sql.QueryTyped("DELETE FROM hotloaded_maps WHERE wsid = ?", tbl["wsid"])
+                    HTTPTable.parameters["paths[0]"] = steam_cachepath
                 end
 
                 HTTP(HTTPTable)
@@ -455,30 +516,60 @@ local function DeleteLingeringHotloadedGMAs()
     end
 end
 
-local matchedDirs = {}
-local function recurseListContents(path, first) -- this is from example #2, won't let me link it properly https://wiki.facepunch.com/gmod/file.Find#example
-    -- do not fill in arg[2]! that is for the function itself to fill (could do a local bool above the function instead, but it fulfills its purpose, whatever, maybe later).
-    local files, dirs = file.Find(path .. "*", "DATA")
-    local matchedFiles = {}
-    matchedDirs = (first == nil and {}) or matchedDirs
-    for _, v in ipairs(files) do
-        local fullPath = path .. v
-        table.insert(matchedFiles, fullPath)
-    end
-
-    for _, dir in ipairs(dirs) do
-        local subFiles = select(1, recurseListContents(path .. dir .. "/", false))
-        for _, file in ipairs(subFiles) do
-            table.insert(matchedFiles, file)
-        end
-
-        table.insert(matchedDirs, path .. dir)
-    end
-    return matchedFiles, matchedDirs
+local function GetStorageData()
+    local DiskLimit = nil
+    local DiskUsed = nil
+    HTTP({
+        method = "GET",
+        url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL,
+        headers = {
+            ["Content-Type"] = "application/json",
+            ["Accept"] = "application/vnd.wisp.v1+json",
+            ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+        },
+        failed = function(reason) print("HTTP request failed", reason) end,
+        success = function(code, body, headers)
+            if code ~= 200 then
+                print("Bad response: ", code, body)
+            else
+                local Tabled = util.JSONToTable(body)
+                DiskLimit = Tabled["attributes"]["limits"]["disk"] * 1000000 -- this is in MB, so * 1000000 to be in bytes
+                print("Got disk limit " .. DiskLimit)
+                HTTP({
+                    method = "GET",
+                    url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL .. "/resources",
+                    headers = {
+                        ["Content-Type"] = "application/json",
+                        ["Accept"] = "application/vnd.wisp.v1+json",
+                        ["Authorization"] = "Bearer " .. SERVER_TOKEN,
+                    },
+                    failed = function(reason) print("HTTP request failed", reason) end,
+                    success = function(code_2, body_2, headers_2)
+                        if code ~= 200 then
+                            print("Bad response: ", code, body)
+                        else
+                            local tbled = util.JSONToTable(body_2)
+                            DiskUsed = tbled["process"]["disk_used"]
+                            print("Got disk used " .. DiskUsed)
+                            return DiskLimit, DiskUsed
+                        end
+                    end
+                })
+            end
+        end,
+    })
 end
 
+local DiskLimit, DiskUsed = nil, nil
+local DiskLeft = nil
 Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     if (RealTime() < 30 and game.IsDedicated() == true) or (game.IsDedicated() == false and game.GetMapChangeCount() == 1) then -- if realtime is less than 30 the server recently started, therefore
+        if WISPED == true then
+            print("Getting disk limit and usage")
+            DiskLimit, DiskUsed = GetStorageData()
+            DiskLeft = DiskLimit - DiskUsed
+        end
+
         print("deleting lingering hotloaded gmas")
         DeleteLingeringHotloadedGMAs()
         -- the table recording mounted gmas / hotloaded_maps doesn't matter, so
@@ -493,17 +584,7 @@ Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
         --
         -- if the server / game is recently up, we can safely remove all the gmas (since they are not mounted anymore). 
         -- we cannot remove a map's gma right after changeleveling to it unfortunately, because mounting a gma makes it open until the game is closed.
-        local PathsToDelete, DirsToDelete = recurseListContents("strippedhotloadgmas/")
-        for _, filepath in ipairs(PathsToDelete) do
-            file.Delete(filepath)
-            --print("deleted " .. filepath)
-        end
-
-        for _, filepath in ipairs(DirsToDelete) do -- you cant delete a directory until all of its subfolders and subfiles are deleted, apparently
-            file.Delete(filepath)
-            --print("deleted " .. filepath)
-        end
-
+        DeleteDirectory("strippedhotloadgmas/")
         print("deleted strippedhotloadgmas/ folder, server recently started")
         return
     end
@@ -567,6 +648,11 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
         return
     end
 
+    if Queued[wsid] then
+        ugccallback(false, "That workshop id is already queued to download!")
+        return
+    end
+
     if debugging ~= true and RTV.GetPlayerCount() < conf.RTVPlayerCount then
         ugccallback(false, "You need more players before you can nominate a map!")
         return
@@ -595,6 +681,11 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
     steamworks.FileInfo(wsid, function(data)
         if not data or data.error then
             ugccallback(false, "Workshop ID errored or is not a valid ID")
+            return
+        end
+
+        if DiskLeft - data.size < conf.NominateByteThreshold then
+            ugccallback(false, "That addon is " .. (conf.NominateByteThreshold - DiskLeft - data.size) .. " over the disk threshold. The server needs more disk space.")
             return
         end
 
