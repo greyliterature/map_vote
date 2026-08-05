@@ -156,6 +156,7 @@ local function IsExtensionBlacklisted(extension)
     return Blacklist[extension]
 end
 
+local DiskLimit, DiskUsed, DiskLeft = nil, nil, nil
 local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but without all the lua
     -- this makes a folder in data/strippedhotloadgmas of the extracted gma
     -- then it takes the stripped, extracted contents and packs it into another gma
@@ -281,23 +282,10 @@ function steamworks.DownloadUGC_CACHED(wsid, callback)
         return
     end
 
-    print("downloading new " .. wsid)
-    local conf = MapVote.GetConfig()
-    if DiskLeft - data.size < conf.NominateByteThreshold then
-        print(wsid .. " is " .. (conf.NominateByteThreshold - DiskLeft - data.size) .. " over the disk threshold, returning")
-        return
-    end
-
     Queued[wsid] = true
     sql.QueryTyped("INSERT INTO hotloaded_maps (mapname, wsid) VALUES (?, ?)", "", wsid) -- always write the wsid so that it gets deleted later
+    print("Downloading new ugc " .. wsid)
     steamworks.DownloadUGC(wsid, function(path, fileobject)
-        if WISPED == true then --
-            steamworks.FileInfo(wsid, function(result)
-                DiskLeft = DiskLeft - result.size
-                print("Disk left: " .. DiskLeft)
-            end)
-        end
-
         DownloadedPathsCache[wsid] = path
         Queued[wsid] = nil
         callback(path, fileobject)
@@ -306,6 +294,7 @@ end
 
 local AlreadyMountedWSIDs = {} -- prevent errors in GMA.create -> GMA.build about it complaining about not being able to open (mounted?) gma files
 local function HotloadMap(wsid, callback) -- this should only mount if the map is voted on, not always
+    print("Hotloading " .. wsid)
     steamworks.DownloadUGC_CACHED(wsid, function(path, fileobject)
         -- the file
         if not path then error("No path for " .. wsid) end
@@ -326,6 +315,7 @@ local function HotloadMap(wsid, callback) -- this should only mount if the map i
                 return
             end
 
+            print("Mounting " .. wsid)
             local succ, files = game.MountGMA(gmapath)
             if succ == true then
                 AlreadyMountedWSIDs[wsid] = true
@@ -367,6 +357,20 @@ hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
             elseif not data then
                 sender:DelayPrintMessage(HUD_PRINTTALK, "Must provide a valid workshop ID")
             else
+                print("Checking filesize of new " .. wsid)
+                if data then
+                    local conf = MapVote.GetConfig()
+                    if WISPED == true and DiskLeft - data.size < conf.NominateByteThreshold then
+                        print(wsid .. " is " .. (conf.NominateByteThreshold - DiskLeft - data.size) .. " over the disk threshold, returning")
+                        return
+                    elseif WISPED == true then
+                        DiskLeft = DiskLeft - data.size
+                        print("Disk left: " .. DiskLeft)
+                    end
+                else
+                    print("No data in FileInfo() for " .. wsid)
+                end
+
                 Nominate.GetMapsFromAddon(wsid, function(PossibleMaps, firstmap)
                     if table.Count(PossibleMaps) - 1 == 0 then sender:DelayPrintMessage(HUD_PRINTTALK, "That addon does not have any maps!") end
                     HotloadMap(wsid, function(succ) return end)
@@ -517,8 +521,6 @@ local function DeleteLingeringHotloadedGMAs()
 end
 
 local function GetStorageData()
-    local DiskLimit = nil
-    local DiskUsed = nil
     HTTP({
         method = "GET",
         url = "https://gamecp.physgun.com/api/client/servers/" .. SERVER_URL,
@@ -551,7 +553,8 @@ local function GetStorageData()
                             local tbled = util.JSONToTable(body_2)
                             DiskUsed = tbled["process"]["disk_used"]
                             print("Got disk used " .. DiskUsed)
-                            return DiskLimit, DiskUsed
+                            DiskLeft = DiskLimit - DiskUsed
+                            print("Disk left: " .. DiskLeft)
                         end
                     end
                 })
@@ -560,14 +563,13 @@ local function GetStorageData()
     })
 end
 
-local DiskLimit, DiskUsed = nil, nil
-local DiskLeft = nil
+GetStorageData()
+
 Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     if (RealTime() < 30 and game.IsDedicated() == true) or (game.IsDedicated() == false and game.GetMapChangeCount() == 1) then -- if realtime is less than 30 the server recently started, therefore
         if WISPED == true then
-            print("Getting disk limit and usage")
-            DiskLimit, DiskUsed = GetStorageData()
-            DiskLeft = DiskLimit - DiskUsed
+            print("Getting storage data")
+            GetStorageData()
         end
 
         print("deleting lingering hotloaded gmas")
