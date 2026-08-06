@@ -697,8 +697,6 @@ function Nominate.CanVote(ply, wsid, mapname, ugccallback)
 
         Nominate.GetMapsFromAddon(wsid, function(PossibleMaps, firstmap)
             if table.Count(PossibleMaps) - 1 == 0 then
-                print(table.Count(PossibleMaps))
-                PrintTable(PossibleMaps)
                 ugccallback(false, "That addon does not have any maps!")
                 return
             elseif table.Count(PossibleMaps) - 1 == 1 then
@@ -864,13 +862,14 @@ function Nominate.IsMapNominated(map) -- no .bsp
 end
 
 function Nominate.WasMapHotloaded(map)
+    map = map .. ".bsp"
     local CheckIfMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", map)
     if CheckIfMapIsInSQLTable == false then
         ErrorNoHaltWithStack("CheckIfMapIsInSQLTable failed" .. (sql.LastError() or ""))
         return
     end
 
-    if CheckIfMapIsInSQLTable[1] and CheckIfMapIsInSQLTable[1][map] then
+    if CheckIfMapIsInSQLTable[1] and CheckIfMapIsInSQLTable[1]["mapname"] == map then
         print(map .. " was hotloaded")
         return true
     end
@@ -895,11 +894,13 @@ Nominate.AddHook("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
             continue
         end
 
-        table.insert(mapsInVote, map)
-        MapCount = MapCount + 1
-        if MapCount > MapVote.config.MapLimit - #NominatedMaps then
-            print("stopped adding non nominated maps past " .. MapCount)
-            break
+        if MapVote.isMapAllowed(map) then
+            table.insert(mapsInVote, map)
+            MapCount = MapCount + 1
+            if MapCount > MapVote.config.MapLimit - #NominatedMaps then
+                print("stopped adding non nominated maps past " .. MapCount)
+                break
+            end
         end
     end
 
