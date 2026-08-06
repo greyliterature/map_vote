@@ -226,7 +226,7 @@ local function DuplicateToStrippedGMA(filepath, callback) -- rewrite the gma but
                     DeleteDirectory("strippedhotloadgmas/" .. wsid)
                     local NewGMASize = file.Size(string.Replace(gmapath, "data/", ""), "DATA")
                     DiskLeft = DiskLeft - NewGMASize
-                    print("New GMA size: " .. NewGMASize .. ", Disk left:" .. DiskLeft)
+                    print("New GMA size: " .. NewGMASize .. ", Disk left: " .. DiskLeft)
                     callback(gmapath)
                     DelayPrintMessage(HUD_PRINTTALK, "Made " .. gmapath)
                 end, ExtensionsToBypass)
@@ -338,7 +338,7 @@ local function HotloadMap(wsid, callback) -- this should only mount if the map i
     end)
 end
 
-hook.Add("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
+Nominate.AddHook("PlayerSay", "Hotload Map Command", function(sender, text, teamChat)
     if not string.StartsWith(text, "!hotload") then return end
     args = string.Explode(" ", text) -- !command -> 123, true, false <-
     table.remove(args, 1)
@@ -564,7 +564,6 @@ local function GetStorageData()
 end
 
 GetStorageData()
-
 Nominate.AddHook("InitPostEntity", "AddWorkshopForHotloadedMap", function()
     if (RealTime() < 30 and game.IsDedicated() == true) or (game.IsDedicated() == false and game.GetMapChangeCount() == 1) then -- if realtime is less than 30 the server recently started, therefore
         if WISPED == true then
@@ -851,29 +850,48 @@ end)
 -----------------]]
 Nominate._maps = nil
 function Nominate.IsMapNominated(map) -- no .bsp
+    for i = 1, #NominatedMaps do
+        local tbl = NominatedMaps[i]
+        local mapname = tbl[2]
+        if mapname == map then
+            print(map .. " was nominated")
+            return true
+        end
+    end
+
+    print(map .. " was not nominated")
+    return false
+end
+
+function Nominate.WasMapHotloaded(map)
     local CheckIfMapIsInSQLTable = sql.QueryTyped("SELECT * FROM hotloaded_maps WHERE mapname = ?", map)
     if CheckIfMapIsInSQLTable == false then
         ErrorNoHaltWithStack("CheckIfMapIsInSQLTable failed" .. (sql.LastError() or ""))
         return
     end
 
-    if CheckIfMapIsInSQLTable[1] and CurrentMapIsNominated == false then return true end
-    for i = 1, #NominatedMaps do
-        local tbl = NominatedMaps[i]
-        local mapname = tbl[2]
-        if mapname == map then return true end
+    if CheckIfMapIsInSQLTable[1] and CheckIfMapIsInSQLTable[1][map] then
+        print(map .. " was hotloaded")
+        return true
     end
+
+    print(map .. " was not hotloaded")
     return false
 end
 
 Nominate.AddHook("MapVote_SelectMaps", "PutNominatedMapsInTable", function()
-    if #NominatedMaps == 0 then return end
+    --if #NominatedMaps == 0 then return end -- if this returns early then the bug with all of the hotloaded / newly mounted maps being part of the rtv list happens
     local mapsInVote = {}
     local maps = MapVote.getMapList()
     local MapCount = 1
     for _, map in RandomPairs(maps) do
         if Nominate.IsMapNominated(map) then
             print(map .. " is nominated, not adding to original maps table")
+            continue
+        end
+
+        if Nominate.WasMapHotloaded(map) then
+            print(map .. " was hotloaded, not adding to original maps table")
             continue
         end
 
