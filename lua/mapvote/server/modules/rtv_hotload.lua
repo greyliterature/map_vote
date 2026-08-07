@@ -93,13 +93,13 @@ end
 local function DeleteDirectory(filepath)
     local PathsToDelete, DirsToDelete = recurseListContents(filepath)
     for _, path in ipairs(PathsToDelete) do
-        file.Delete(filepath)
-        --print("deleted " .. filepath)
+        file.Delete(path)
+        --print("deleted " .. path)
     end
 
     for _, path in ipairs(DirsToDelete) do -- you cant delete a directory until all of its subfolders and subfiles are deleted, apparently
-        file.Delete(filepath)
-        --print("deleted " .. filepath)
+        file.Delete(path)
+        --print("deleted dir " .. path)
     end
 end
 
