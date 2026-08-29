@@ -350,6 +350,11 @@ Nominate.AddHook("PlayerSay", "Hotload Map Command", function(sender, text, team
         end
 
         local wsid = args[1]
+        if not wsid then
+            sender:ChatPrint("Must provide a workshop ID")
+            return
+        end
+
         steamworks.FileInfo(wsid, function(data)
             -- check if the wsid is valid
             if data and data.error then
