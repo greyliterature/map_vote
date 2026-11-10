@@ -102,9 +102,9 @@ function MapVote.StartVote(maps, endTime)
                 end
 
                 SpacerPanel:SetWide(RowGap)
-                local VoteIcon = vgui.Create("mapvote_SVoteIcon", row) -- requires parent only because of autorefresh being annoying
+                local VoteIcon = vgui.Create("MapVote_MapIcon", row) -- requires parent only because of autorefresh being annoying
                 VoteIcon:SetMap(tbl.maps[i])
-                VoteIcon:DownloadMap()
+                --VoteIcon:DownloadMap()
                 VoteIcon:SetSize(IconSize, IconSize)
                 Grid:SetRowHeight(IconSize)
                 Grid:AddItem(VoteIcon)
