@@ -1,22 +1,21 @@
-function MapVote.FinishVote( mapIndex )
-    if not IsValid( MapVote.Panel ) then return end
-    MapVote.Panel:SetMinimized( false )
-    MapVote.Panel:SetVisible( true )
-    MapVote.Panel.voteArea:Flash( mapIndex )
+function MapVote.FinishVote(mapIndex)
+    if not IsValid(MapVote.Panel) then return end
+    MapVote.Panel:SetMinimized(false)
+    MapVote.Panel:SetVisible(true)
+    --MapVote.Panel.voteArea:Flash( mapIndex )
 end
 
 function MapVote.CancelVote()
-    if IsValid( MapVote.Panel ) then MapVote.Panel:Remove() end
-    hook.Run( "MapVote_VoteCancelled" )
+    if IsValid(MapVote.Panel) then MapVote.Panel:Remove() end
+    hook.Run("MapVote_VoteCancelled")
 end
 
 ---@param ply Player
 ---@param mapIndex number
 ---@param voteMult number
-function MapVote.ChangeVote( ply, mapIndex, voteMult )
-    if not IsValid( ply ) then return end
-    if not IsValid( MapVote.Panel ) then return end
-
+function MapVote.ChangeVote(ply, mapIndex, voteMult)
+    if not IsValid(ply) then return end
+    if not IsValid(MapVote.Panel) then return end
     ---@type string|Player
     local identifier = ply:SteamID64()
     if ply:IsBot() then
@@ -24,113 +23,127 @@ function MapVote.ChangeVote( ply, mapIndex, voteMult )
         identifier = ply
     end
 
-    MapVote.Panel.voteArea:SetVote( identifier, mapIndex, voteMult )
+    MapVote.Panel.voteArea:SetVote(identifier, mapIndex, voteMult)
 end
 
-function MapVote.StartVote( maps, endTime )
+--@ returns n amount of rows required to fit x number of items under constraint y width
+local function CalculateRowCount(squaresize, width, numitems)
+    local columncount = math.floor(width / squaresize)
+    local rowcount = math.ceil(numitems / columncount)
+    return rowcount
+end
+
+local Categories = {
+    -- the map networking would no longer be needed with this categories table, should only network x number of maps that aren't categorized
+    [1] = {
+        ["name"] = "MyCoolCategory1",
+        ["maps"] = {"gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map",}
+    },
+    [2] = {
+        ["name"] = "MyCoolCategory2",
+        ["maps"] = {"fof_city17"}
+    },
+}
+
+local IconSize = ScrH() * 0.15
+local RowGap = ScrH() * 0.005
+function MapVote.StartVote(maps, endTime)
     MapVote.EndTime = endTime
-    if IsValid( MapVote.Panel ) then MapVote.Panel:Remove() end
-
-    local frame = vgui.Create( "MapVote_VoteFrame" )
-    frame:SetSize( ScrW() * 0.8, ScrH() * 0.85 )
-    frame:Center()
-    frame:MakePopup()
-    frame:SetKeyboardInputEnabled( false )
-    frame:SetTitle( "" )
-    frame:SetHideOnClose( true )
-
-    ---@diagnostic disable-next-line: duplicate-set-field
-    frame.OnMinimizedChangeStart = function( self, v )
-        if v then return end
-        self.voteArea:SetVisible( true )
-        self.titleLabel:SetText( "Vote for a new map!" )
-
-        hook.Run( "MapVote_VotePanelOpened" )
-    end
-
-    ---@diagnostic disable-next-line: duplicate-set-field
-    frame.OnMinimizedChangeFinish = function( self, v )
-        if not v then return end
-        self.voteArea:SetVisible( false )
-        self.titleLabel:SetText( "Vote for a new map! (F3 to vote)" )
-        self.titleLabel:SetWide( 700 )
-
-        hook.Run( "MapVote_VotePanelClosed" )
-    end
-
-    local infoRow = vgui.Create( "Panel", frame ) --[[@as DPanel]]
-    infoRow:Dock( TOP )
-    infoRow:SetTall( 40 )
-
-    local titleLabel = vgui.Create( "DLabel", infoRow ) --[[@as DLabel]]
-    titleLabel:SetColor( MapVote.style.colorTextPrimary )
-    titleLabel:SetText( "Vote for a new map!" )
-    titleLabel:Dock( LEFT )
-    titleLabel:SetWide( 500 )
-    titleLabel:DockMargin( 10, 5, 5, 5 )
-    titleLabel:SetFont( MapVote.style.mapVoteTitleFont )
-    frame.titleLabel = titleLabel
-
-    local countdownLabel = vgui.Create( "DLabel", infoRow ) --[[@as DLabel]]
-    countdownLabel:SetColor( MapVote.style.colorTextPrimary )
-    countdownLabel:SetText( "00:45" )
-    countdownLabel:Dock( RIGHT )
-    countdownLabel:SetWide( 80 )
-    countdownLabel:DockMargin( 5, 5, 5, 10 )
-    countdownLabel:SetFont( MapVote.style.mapVoteTitleFont )
-    timer.Create( "MapVoteCountdown", 0.1, 0, function()
-        if not IsValid( countdownLabel ) then
-            timer.Remove( "MapVoteCountdown" )
-            return
-        end
-        local timeLeft = math.ceil( math.Clamp( endTime - CurTime(), 0, math.huge ) )
-
-        countdownLabel:SetText( string.FormattedTime( timeLeft or 0, "%02i:%02i" ) )
-    end )
-    local voteArea = vgui.Create( "MapVote_VoteArea", frame )
-    local margin = 10
-    voteArea:Dock( FILL )
-    voteArea:DockMargin( margin, margin, margin, margin )
-    voteArea:InvalidateLayout( true )
-    voteArea:InvalidateParent( true )
-    voteArea:SetMaps( maps )
-
-    frame:SetTall( voteArea:GetTotalRowHeight() + infoRow:GetTall() + margin * 3 + 20 )
-    frame:SetWide( voteArea:GetTotalRowWidth() + margin * 2 + 10 )
-    voteArea:InvalidateLayout( true )
-    frame:Center()
-
-    local lastClicked = CurTime()
-    ---@diagnostic disable-next-line: duplicate-set-field
-    voteArea.OnMapClicked = function( _, index, _ )
-        -- TODO this could use the leaky bucket rate limiting the server does
-        if CurTime() - lastClicked > 0.4 then
-            MapVote.Net.changeVote( index )
+    if IsValid(MapVote.Panel) then MapVote.Panel:Remove() end
+    local ScreenPanel = vgui.Create("DPanel") -- make this use panel:parenttohud instead or gethudpanel
+    MapVote.Panel = ScreenPanel
+    ScreenPanel:SetSize(ScrW(), ScrH())
+    local VoteFrame = vgui.Create("DPanel", ScreenPanel)
+    VoteFrame:SetSize(IconSize * 8 + RowGap * 8, ScrH() * 0.7)
+    VoteFrame:SetY(ScrH() * 0.1)
+    VoteFrame:CenterHorizontal()
+    VoteFrame:MakePopup()
+    function VoteFrame.Paint(_, w, h)
+        if debugvgui == true then
+            surface.SetDrawColor(mapvote_colortable.color_blue)
+            surface.DrawRect(0, 0, w, h)
         end
     end
 
-    frame.voteArea = voteArea
-    MapVote.ThumbDownloader:RequestWorkshopIDs()
+    local TopDropDock = ScrH() * 0.01
+    local SixtyFour = ScrH() * 0.059259999 -- basically 64
+    for _, tbl in ipairs(Categories) do
+        local DropDown = vgui.Create("SDropDown", VoteFrame)
+        DropDown:Dock(TOP)
+        DropDown:SetWide(VoteFrame:GetWide())
+        DropDown:DockMargin(0, 0, 0, TopDropDock)
+        DropDown:SetTall(SixtyFour * 0.4)
+        --DropDown:DockPadding(0, DropDown:GetTall(), 0, 0)
+        local RowCount = CalculateRowCount(IconSize + RowGap, DropDown:GetWide(), #tbl.maps)
+        local ExpandedSize = RowCount * IconSize + (RowCount - 1) * RowGap
+        DropDown:SetExpandedSize(ExpandedSize)
+        local Grid = nil
+        function DropDown:FullyExpandedHook()
+            Grid = vgui.Create("SGrid", DropDown)
+            Grid:SetOverallAlignment(SGRID_ALIGN_LEFT)
+            --Grid:DockMargin(0, DropDown:GetMinimizedSize(), 0, 0)
+            Grid:SetWide(DropDown:GetWide())
+            Grid:Dock(TOP) --0, 0 + DropDown:GetMinimizedSize())
+            --Grid:Hide()
+            function Grid.Paint(_, w, h)
+                if debugvgui == true then
+                    surface.SetDrawColor(mapvote_colortable.color_red)
+                    surface.DrawRect(0, 0, w, h)
+                end
+            end
 
-    MapVote.Panel = frame
+            for i = 1, #tbl.maps do
+                local SpacerPanel = vgui.Create("DPanel", row)
+                function SpacerPanel.Paint(_, w, h)
+                    if debugvgui == true then
+                        surface.SetDrawColor(mapvote_colortable.color_yellow)
+                        surface.DrawRect(0, 0, w, h)
+                    end
+                end
 
-    hook.Run( "MapVote_VoteStarted" )
-    hook.Run( "MapVote_VotePanelOpened" )
+                SpacerPanel:SetWide(RowGap)
+                local VoteIcon = vgui.Create("mapvote_SVoteIcon", row) -- requires parent only because of autorefresh being annoying
+                VoteIcon:SetMap(tbl.maps[i])
+                if not VoteIcon:IsMapAlreadyRegistered(tbl.maps[i]) then -- if the map is already registered it won't lag the player, set them all at the same time, its fine
+                    timer.Simple((i - 1) * 0, function()
+                        if not IsValid(VoteIcon) then return end
+                        -- dont lag player so bad, and also let mapmaterials cache do its job
+                        -- this should be replaced by a proper queue system
+                        VoteIcon:DownloadMap()
+                        return
+                    end)
+                else -- why does this else statement do the exact same thing? figure out later, probably useless
+                    VoteIcon:DownloadMap()
+                end
+
+                VoteIcon:SetSize(IconSize, IconSize)
+                Grid:SetRowHeight(IconSize)
+                Grid:AddItem(VoteIcon)
+                Grid:AddItem(SpacerPanel)
+            end
+
+            Grid:Show()
+        end
+
+        function DropDown:FullyMinimizedHook()
+            if IsValid(Grid) then
+                print("Removed")
+                Grid:Remove()
+            end
+        end
+    end
+
+    hook.Run("MapVote_VoteStarted")
+    hook.Run("MapVote_VotePanelOpened")
 end
 
-hook.Add( "InitPostEntity", "MapVote_RequestState", function()
-    timer.Simple( 5, function()
-        MapVote.Net.requestState()
-    end )
-end )
-
-gameevent.Listen( "player_disconnect" )
-hook.Add( "player_disconnect", "MapVote_RemoveVote", function( data )
-    if not IsValid( MapVote.Panel ) then return end
-
+hook.Add("InitPostEntity", "MapVote_RequestState", function() timer.Simple(5, function() MapVote.Net.requestState() end) end)
+gameevent.Listen("player_disconnect")
+hook.Add("player_disconnect", "MapVote_RemoveVote", function(data)
+    if not IsValid(MapVote.Panel) then return end
     if data.networkid == "BOT" then
         MapVote.Panel.voteArea:RemoveInvalidVotes()
     else
-        MapVote.Panel.voteArea:RemoveVote( util.SteamIDTo64( data.networkid ) )
+        MapVote.Panel.voteArea:RemoveVote(util.SteamIDTo64(data.networkid))
     end
-end )
+end)
