@@ -1,6 +1,9 @@
 util.AddNetworkString( "MapVote_WorkshopIDTable" )
 util.AddNetworkString( "MapVote_RequestWorkshopIDTable" )
 
+util.AddNetworkString("MapVote_SingleWorkshopID")
+util.AddNetworkString("MapVote_RequestSingleWorkshopID")
+
 function MapVote.getAllWorkshopIDs()
     local addonWorkshopIDs = {}
     for _, addon in ipairs( engine.GetAddons() ) do
@@ -12,6 +15,17 @@ function MapVote.getAllWorkshopIDs()
         end
     end
     MapVote.addonWorkshopIDs = addonWorkshopIDs
+end
+
+function MapVote.getWorkshopID( map )
+    local addonWorkshopID = nil
+    if MapVote.addonWorkshopIDs[map] then
+        addonWorkshopID = MapVote.addonWorkshopIDs[map]
+    else
+        print( "MapVote: No workshop ID found for map", map )
+    end
+
+    return addonWorkshopID
 end
 
 function MapVote.getWorkshopIDs( maps )
