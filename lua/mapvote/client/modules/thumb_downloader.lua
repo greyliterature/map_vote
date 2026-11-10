@@ -1,5 +1,7 @@
-local ThumbDownloader = MapVote.ThumbDownloader or {
+-- for autorefresh, otherwise VERY annoying issues arise with debugging
+local ThumbDownloader = {
     workshopIDLookup = {},
+    workshopIDToMap = {},
     mapsToDownload = {},
     ---@type table<string, fun( filepath: string )>
     urlOverrides = {},
@@ -16,13 +18,28 @@ local ThumbDownloader = MapVote.ThumbDownloader or {
 
 
 MapVote.ThumbDownloader = ThumbDownloader
-
+MapVote.ThumbDownloader.downloadedMaps = MapVote.ThumbDownloader.downloadedMaps or {}
+MapVote.ThumbDownloader.workshopIDToMap = MapVote.ThumbDownloader.workshopIDToMap or {}
 -- TODO all net receivers should be in net.lua
 net.Receive( "MapVote_WorkshopIDTable", function()
     ThumbDownloader.workshopIDLookup = net.ReadTable()
+    PrintTable(ThumbDownloader.workshopIDLookup)
+    print("\n\n\n\n\n\n")
+    for wsid, map in pairs(ThumbDownloader.workshopIDLookup) do
+        ThumbDownloader.workshopIDToMap[wsid] = map
+    end
     print( string.format( "MapVote: Received %s workshop IDs", table.Count( ThumbDownloader.workshopIDLookup ) ) )
     ThumbDownloader:DownloadAll()
 end )
+
+net.Receive( "MapVote_SingleWorkshopID", function()
+    local map = net.ReadString()
+    local wsid = net.ReadString()
+    print(wsid, map, "HIII")
+    ThumbDownloader.workshopIDToMap[wsid] = map
+    ThumbDownloader.workshopIDLookup[map] = wsid
+    ThumbDownloader:DownloadAll()
+end)
 
 function ThumbDownloader:getMapThumbnailFilePath( name )
     if self.thumbFilePathCache[name] then
@@ -53,7 +70,13 @@ function ThumbDownloader:QueueDownload( map, callback )
         return
     end
 
+    if self.downloadedMaps[map] then
+        callback(self.downloadedMaps[map])
+        return
+    end
+    PrintTable(self.downloadedMaps)
     print( "MapVote: Queued map thumb for download", map )
+
     table.insert( self.mapsToDownload, { map = map, callback = callback } )
 end
 
@@ -65,8 +88,8 @@ end
 
 function ThumbDownloader:RequestWorkshopIDs()
     if #self.mapsToDownload == 0 then return end
-
     local mapsNeedingIDs = {}
+
     for _, mapData in pairs( self.mapsToDownload ) do
         local map = mapData.map
         if not self.urlOverrides[map] then
@@ -77,13 +100,45 @@ function ThumbDownloader:RequestWorkshopIDs()
     MapVote.Net.requestWorskhopIDs( mapsNeedingIDs )
 end
 
+function ThumbDownloader:GetCallbackOfMap( map )
+    for _, mapData in pairs(self.mapsToDownload) do
+        PrintTable(mapData)
+        print("yes")
+        if mapData.map == map then
+            print("MapVote: got callback for map " .. map)
+            return mapData.callback
+        end
+    end
+end
+
+function ThumbDownloader:RequestSingleWorkshopID(map)
+    local callback = self:GetCallbackOfMap(map) -- why do i have to do this? there must be a better way
+    if self.workshopIDLookup[map] then
+        print("MapVote: single WSID already requested, returning to download singly: " .. map)
+        self:DownloadSingly(map, callback)
+        return
+    end
+
+    print("MapVote: requesting single WSID for map " .. map)
+
+    MapVote.Net.requestSingleWorkshopID( map, callback )
+end
+
 function ThumbDownloader:DownloadSingly(map, callback)
     print( "MapVote: Downloading single map " .. map)
-
     local wsid = self.workshopIDLookup[map]
+    PrintTable(self.workshopIDLookup)
+    print("HI", wsid)
+
+    if self.downloadedMaps[map] then
+        print("MapVote: Map already downloaded, calling back")
+        callback(self.downloadedMaps[map])
+    end
+
     if self.urlOverrides[map] then
         self:DownloadThumbnailURL( map, self.urlOverrides[map], callback )
     elseif wsid then
+        print("!!!!!!!!!!")
         self:DownloadThumbnailSteam( wsid, callback )
     else
         callback( Material( self.noIcon ) )
@@ -100,11 +155,15 @@ function ThumbDownloader:DownloadAll()
         local callback = mapData.callback
 
         local wsid = self.workshopIDLookup[map]
+
         if self.urlOverrides[map] then
+            print("1111")
             self:DownloadThumbnailURL( map, self.urlOverrides[map], callback )
         elseif wsid then
+            print("22222")
             self:DownloadThumbnailSteam( wsid, callback )
         else
+            print("SAD")
             callback( Material( self.noIcon ) )
         end
     end
@@ -112,22 +171,37 @@ function ThumbDownloader:DownloadAll()
 end
 
 function ThumbDownloader:DownloadThumbnailSteam( wsid, callback )
+    if not wsid then
+        error("No WSID given")
+        return
+    end
+
     local MAT_ERROR = Material( self.noIcon )
     steamworks.FileInfo( wsid, function( result )
         if not result then
+            print("MapVote: no result for " .. wsid)
             callback( MAT_ERROR )
             return
         end
 
         if not result.previewid then
+            print("MapVote: no previewid for " .. wsid)
             callback( MAT_ERROR )
             return
         end
 
+        print("YES DOWNLOAD")
         -- If we already have this icon downloaded, create a material from the file
         local path = "cache/workshop/" .. result.previewid .. ".cache"
         if file.Exists( path, "MOD" ) then
-            callback( AddonMaterial( path ) )
+            print("HAW")
+            local mat = AddonMaterial( path )
+            if self.workshopIDToMap[wsid] then
+                print("YES!")
+                self.downloadedMaps[self.workshopIDToMap[wsid]] = mat
+            end
+
+            callback( mat )
             return
         end
 
@@ -138,13 +212,19 @@ function ThumbDownloader:DownloadThumbnailSteam( wsid, callback )
                 return
             end
 
-            callback( AddonMaterial( filePath ) )
+            local mat = AddonMaterial( path )
+            print("YEEEAAAAHH")
+            if self.workshopIDToMap[wsid] then
+                self.downloadedMaps[workshopIDToMap[wsid]] = mat
+            end
+            callback( mat )
         end )
     end )
 end
 
 function ThumbDownloader:DownloadThumbnailURL( name, url, callback )
     file.CreateDir( "mapvote/thumb_cache" )
+
     local request = {
         failed = function( err )
             print( "MapVote: Failed to download map thumb", err )
