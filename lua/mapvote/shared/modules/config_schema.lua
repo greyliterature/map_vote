@@ -24,7 +24,11 @@ local schema = SV.Object {
     } ) ):Optional(),
     PlyRTVCooldownSeconds = SV.Int { min = 1 },
     MapIconURLs = SV.Map( SV.String(), SV.String() ):Optional(),
-
+    EnableNomination = SV.Bool(),
+    NominateWait = SV.Number(),
+    NominatePercentPlayersRequired = SV.Number { min = 0, max = 1 },
+    NominateMaxSizeBytes = SV.Int { min = 1 },
+    NominateByteThreshold = SV.Int { min = 5000000 }
 }
 
 local default = {
@@ -49,6 +53,11 @@ local default = {
     PlyRTVCooldownSeconds = 120,
     MapIconURLs = {},
     MapConfig = {},
+    EnableNomination = false,
+    NominateWait = 60,
+    NominatePercentPlayersRequired = 0.66,
+    NominateMaxSizeBytes = 500000000,
+    NominateByteThreshold = 20000000000,
 }
 
 MapVote.configSchema = schema
