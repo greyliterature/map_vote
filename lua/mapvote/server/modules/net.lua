@@ -36,7 +36,7 @@ MapVote.Net.receiveWithMiddleware( "MapVote_Config", function()
     local done = {}
     local differences = {}
     local upperusekey = {}
-    local function checkDifferences(tbl, comparetbl) -- using some of the same logic as https://github.com/Facepunch/garrysmod/blob/19fb8a0e3a51d702ed65ab6d03b3b928eb86e74a/garrysmod/lua/includes/util.lua#L148
+    local function checkDifferences(tbl, comparetbl)  -- using some of the same logic as https://github.com/Facepunch/garrysmod/blob/19fb8a0e3a51d702ed65ab6d03b3b928eb86e74a/garrysmod/lua/includes/util.lua#L148
         differences = differences or {}
         done = done or {}
         done[tbl] = true
@@ -123,6 +123,16 @@ MapVote.Net.receiveWithMiddleware( "MapVote_RequestVoteState", function( _, ply 
         end
     end )
 end, MapVote.Net.rateLimit( "MapVote_RequestVoteState", 2, 0.1 ) )
+
+MapVote.Net.receiveWithMiddleware( "MapVote_RequestSingleWorkshopID", function( _, ply )
+    local requestedMap = net.ReadString()
+    local addonWorkshopID = MapVote.getWorkshopID( requestedMap )
+    net.Start( "MapVote_SingleWorkshopID" )
+    net.WriteString( requestedMap )
+    net.WriteString( addonWorkshopID )
+    net.Send( ply )
+end, MapVote.Net.rateLimit( "MapVote_RequestSingleWorkshopID", 5, 0.5 ) )
+
 
 MapVote.Net.receiveWithMiddleware( "MapVote_RequestWorkshopIDTable", function( _, ply )
     local requestedMaps = net.ReadTable()
