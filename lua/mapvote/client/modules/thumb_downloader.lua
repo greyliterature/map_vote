@@ -77,6 +77,21 @@ function ThumbDownloader:RequestWorkshopIDs()
     MapVote.Net.requestWorskhopIDs( mapsNeedingIDs )
 end
 
+function ThumbDownloader:DownloadSingly(map, callback)
+    print( "MapVote: Downloading single map " .. map)
+
+    local wsid = self.workshopIDLookup[map]
+    if self.urlOverrides[map] then
+        self:DownloadThumbnailURL( map, self.urlOverrides[map], callback )
+    elseif wsid then
+        self:DownloadThumbnailSteam( wsid, callback )
+    else
+        callback( Material( self.noIcon ) )
+    end
+
+    self.mapsToDownload = {}
+end
+
 function ThumbDownloader:DownloadAll()
     print( "MapVote: Downloading all queued map thumbs" )
 
