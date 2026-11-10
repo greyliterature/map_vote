@@ -1,7 +1,5 @@
 -- SMapvoteIcon
 local MapMaterials = {}
-
-
 -- SVoteIcon
 local PANEL = {}
 function PANEL:Init()
@@ -53,9 +51,13 @@ function PANEL:DownloadMap()
         end)
     end)
     --]]
-    MapVote.ThumbDownloader:DownloadSingly(mapname, function(material)
-        self.MapMaterial = material
+    MapVote.ThumbDownloader:QueueDownload(mapname, function(material)
+        MapVote.TaskManager.AddFunc(function()
+            self.MapMaterial = material
+            return
+        end)
     end)
+    --MapVote.ThumbDownloader:RequestSingleWorkshopID(mapname)
 end
 
 local ERROR_DOWNLOADING_MAT = Material("maps/thumb/noicon.png")
