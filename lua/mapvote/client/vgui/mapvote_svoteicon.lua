@@ -1,27 +1,6 @@
 -- SMapvoteIcon
-local MapsToPanel = {}
-local MapNameToWSID = {}
 local MapMaterials = {}
---@ panel is for the queue system table to remember
-local function RequestMapWSID(panel, mapname) -- should this be batched? is net messages 1 by 1 sig worse than a large net message? probably
-    if MapMaterials[mapname] then
-        --print("RET", MapMaterials[mapname])
-        panel.MapMaterial = MapMaterials[mapname]
-        return
-    end
 
-    --[[
-            -- this didnt work properly
-            if MapNameToWSID[mapname] then -- cached in server response netmessage
-                panel.MapMaterial = MapsToPanel[mapname].MapMaterial
-                return
-            end
-            --]]
-    MapsToPanel[mapname] = panel
-    net.Start("rv_mapvote_request_map_wsid")
-    net.WriteString(mapname)
-    net.SendToServer()
-end
 
 -- SVoteIcon
 local PANEL = {}
@@ -63,14 +42,23 @@ function PANEL:GetMapName()
 end
 
 function PANEL:DownloadMap()
-    MapVote.ThumbDownloader:QueueDownload(self:GetMapName(), function(material)
+    local mapname = self:GetMapName()
+    --[[
+    MapVote.ThumbDownloader:QueueDownload(mapname, function(material)
         MapVote.TaskManager.AddFunc(function()
             ---@diagnostic disable-next-line: missing-parameter
-            self.MapMaterial = material
+            local mat = Material(material)
+            self.MapMaterial = mat
+            print(mat, "HII GOT IT")
         end)
+    end)
+    --]]
+    MapVote.ThumbDownloader:DownloadSingly(mapname, function(material)
+        self.MapMaterial = material
     end)
 end
 
+local ERROR_DOWNLOADING_MAT = Material("maps/thumb/noicon.png")
 function PANEL:Paint(w, h)
     surface.SetDrawColor(color_white)
     surface.SetMaterial(self.MapMaterial or ERROR_DOWNLOADING_MAT)
