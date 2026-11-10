@@ -104,24 +104,14 @@ function MapVote.StartVote(maps, endTime)
                 SpacerPanel:SetWide(RowGap)
                 local VoteIcon = vgui.Create("mapvote_SVoteIcon", row) -- requires parent only because of autorefresh being annoying
                 VoteIcon:SetMap(tbl.maps[i])
-                if not VoteIcon:IsMapAlreadyRegistered(tbl.maps[i]) then -- if the map is already registered it won't lag the player, set them all at the same time, its fine
-                    timer.Simple((i - 1) * 0, function()
-                        if not IsValid(VoteIcon) then return end
-                        -- dont lag player so bad, and also let mapmaterials cache do its job
-                        -- this should be replaced by a proper queue system
-                        VoteIcon:DownloadMap()
-                        return
-                    end)
-                else -- why does this else statement do the exact same thing? figure out later, probably useless
-                    VoteIcon:DownloadMap()
-                end
-
+                VoteIcon:DownloadMap()
                 VoteIcon:SetSize(IconSize, IconSize)
                 Grid:SetRowHeight(IconSize)
                 Grid:AddItem(VoteIcon)
                 Grid:AddItem(SpacerPanel)
             end
 
+            MapVote.ThumbDownloader:RequestWorkshopIDs()
             Grid:Show()
         end
 
