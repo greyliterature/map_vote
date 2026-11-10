@@ -25,7 +25,8 @@ net.Receive( "MapVote_WorkshopIDTable", function()
     ThumbDownloader.workshopIDLookup = net.ReadTable()
     PrintTable(ThumbDownloader.workshopIDLookup)
     print("\n\n\n\n\n\n")
-    for wsid, map in pairs(ThumbDownloader.workshopIDLookup) do
+    for map, wsid in pairs(ThumbDownloader.workshopIDLookup) do
+        print(wsid, map)
         ThumbDownloader.workshopIDToMap[wsid] = map
     end
     print( string.format( "MapVote: Received %s workshop IDs", table.Count( ThumbDownloader.workshopIDLookup ) ) )
@@ -38,7 +39,8 @@ net.Receive( "MapVote_SingleWorkshopID", function()
     print(wsid, map, "HIII")
     ThumbDownloader.workshopIDToMap[wsid] = map
     ThumbDownloader.workshopIDLookup[map] = wsid
-    ThumbDownloader:DownloadAll()
+    local callback = ThumbDownloader:GetCallbackOfMap(map)
+    ThumbDownloader:DownloadSingly(map, callback)
 end)
 
 function ThumbDownloader:getMapThumbnailFilePath( name )
@@ -67,9 +69,9 @@ function ThumbDownloader:QueueDownload( map, callback )
     local filePath = self:getMapThumbnailFilePath( map )
     if filePath then
         local mat = Material( filePath )
-        self.downloadedMaps[map] = mat
-        callback( mat )
-        return
+        --self.downloadedMaps[map] = mat
+        --callback( mat )
+        --return
     end
 
     if self.downloadedMaps[map] then
@@ -103,9 +105,8 @@ function ThumbDownloader:RequestWorkshopIDs()
 end
 
 function ThumbDownloader:GetCallbackOfMap( map )
+    print("Getting callback")
     for _, mapData in pairs(self.mapsToDownload) do
-        PrintTable(mapData)
-        print("yes")
         if mapData.map == map then
             print("MapVote: got callback for map " .. map)
             return mapData.callback
@@ -117,8 +118,8 @@ function ThumbDownloader:RequestSingleWorkshopID(map)
     local callback = self:GetCallbackOfMap(map) -- why do i have to do this? there must be a better way
     if self.workshopIDLookup[map] then
         print("MapVote: single WSID already requested, returning to download singly: " .. map)
-        self:DownloadSingly(map, callback)
-        return
+        --self:DownloadSingly(map, callback)
+        --return
     end
 
     print("MapVote: requesting single WSID for map " .. map)
@@ -129,8 +130,6 @@ end
 function ThumbDownloader:DownloadSingly(map, callback)
     print( "MapVote: Downloading single map " .. map)
     local wsid = self.workshopIDLookup[map]
-    PrintTable(self.workshopIDLookup)
-    print("HI", wsid)
 
     if self.downloadedMaps[map] then
         print("MapVote: Map already downloaded, calling back")
@@ -146,7 +145,7 @@ function ThumbDownloader:DownloadSingly(map, callback)
         callback( Material( self.noIcon ) )
     end
 
-    self.mapsToDownload = {}
+    table.RemoveByValue(self.mapsToDownload, map)
 end
 
 function ThumbDownloader:DownloadAll()
@@ -156,13 +155,17 @@ function ThumbDownloader:DownloadAll()
         local map = mapData.map
         local callback = mapData.callback
 
+        if self.downloadedMaps[map] then
+            callback(self.downloadedMaps[map])
+            return
+        end
+
         local wsid = self.workshopIDLookup[map]
 
         if self.urlOverrides[map] then
-            print("1111")
             self:DownloadThumbnailURL( map, self.urlOverrides[map], callback )
         elseif wsid then
-            print("22222")
+            print("!!!!!!!!!")
             self:DownloadThumbnailSteam( wsid, callback )
         else
             print("SAD")
@@ -173,6 +176,7 @@ function ThumbDownloader:DownloadAll()
 end
 
 function ThumbDownloader:DownloadThumbnailSteam( wsid, callback )
+    print("MapVote: downloading thumbnailsteam for " .. wsid)
     if not wsid then
         error("No WSID given")
         return
@@ -180,6 +184,12 @@ function ThumbDownloader:DownloadThumbnailSteam( wsid, callback )
 
     local MAT_ERROR = Material( self.noIcon )
     steamworks.FileInfo( wsid, function( result )
+        if self.workshopIDToMap[wsid] and self.downloadedMaps[self.workshopIDToMap[wsid]] then
+            print("YES!")
+            print(self.downloadedMaps[self.workshopIDToMap[wsid]])
+            callback(self.downloadedMaps[self.workshopIDToMap[wsid]])
+        end
+
         if not result then
             print("MapVote: no result for " .. wsid)
             callback( MAT_ERROR )
@@ -192,7 +202,6 @@ function ThumbDownloader:DownloadThumbnailSteam( wsid, callback )
             return
         end
 
-        print("YES DOWNLOAD")
         -- If we already have this icon downloaded, create a material from the file
         local path = "cache/workshop/" .. result.previewid .. ".cache"
         if file.Exists( path, "MOD" ) then
