@@ -66,7 +66,9 @@ end
 function ThumbDownloader:QueueDownload( map, callback )
     local filePath = self:getMapThumbnailFilePath( map )
     if filePath then
-        callback( filePath )
+        local mat = Material( filePath )
+        self.downloadedMaps[map] = mat
+        callback( mat )
         return
     end
 
