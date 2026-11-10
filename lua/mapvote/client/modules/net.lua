@@ -101,6 +101,12 @@ function MapVote.Net.changeVote( index )
     net.SendToServer()
 end
 
+function MapVote.Net.requestSingleWorkshopID( wsid )
+    net.Start( "MapVote_RequestSingleWorkshopID" )
+    net.WriteString( wsid )
+    net.SendToServer()
+end
+
 function MapVote.Net.requestWorskhopIDs( maps )
     net.Start( "MapVote_RequestWorkshopIDTable" )
     net.WriteTable( maps )
