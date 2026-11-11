@@ -28,7 +28,9 @@ local schema = SV.Object {
     NominateWait = SV.Number(),
     NominatePercentPlayersRequired = SV.Number { min = 0, max = 1 },
     NominateMaxSizeBytes = SV.Int { min = 1 },
-    NominateByteThreshold = SV.Int { min = 5000000 }
+    NominateByteThreshold = SV.Int { min = 5000000 },
+    UseDropdowns = SV.Bool(),
+    SendAllMaps = SV.Bool(),
 }
 
 local default = {
@@ -58,6 +60,8 @@ local default = {
     NominatePercentPlayersRequired = 0.66,
     NominateMaxSizeBytes = 500000000,
     NominateByteThreshold = 20000000000,
+    SendAllMaps = true,
+    UseDropdowns = true,
 }
 
 MapVote.configSchema = schema
