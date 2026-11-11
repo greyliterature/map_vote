@@ -31,6 +31,7 @@ net.Receive( "MapVote_VoteStarted", function()
         table.insert( maps, map )
     end
 
+    MapVote.currentMaps = maps
     local endTime = net.ReadUInt( 32 )
     MapVote.StartVote( maps, endTime )
 end )
