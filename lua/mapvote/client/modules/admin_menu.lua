@@ -31,6 +31,9 @@ local configMenuOptions = {
     { "Percentage of players who need to nominate a map for it to be added to map list", schema.fields.NominatePercentPlayersRequired, "NominatePercentPlayersRequired"},
     { "Maximum size (in bytes) for nominated maps (default = 50 MB)",            schema.fields.NominateMaxSizeBytes,        "NominateMaxSizeBytes" },
     { "The maximum amount of disk space left before ending nomination commands (in bytes, default = 20 GB)", schema.fields.NominateByteThreshold,       "NominateByteThreshold" },
+    { seperator = true,                                                          text = "Dropdowns"},
+    { "Use dropdowns",                                                           schema.fields.UseDropdowns,                "UseDropdowns"},
+    { "Send all maps when using dropdowns",                                      schema.fields.SendAllMaps,                 "SendAllMaps"},
 }
 
 MapVote._mapconfigFrame = nil
