@@ -65,13 +65,14 @@ function MapVote.Start( length )
     local maps = MapVote.getMapList()
 
     local mapsInVote = hook.Run( "MapVote_SelectMaps" )
+    local SendAllMaps = (MapVote.config.SendAllMaps == true and MapVote.config.UseDropdowns == true)
     if not mapsInVote then
         mapsInVote = {}
         for _, map in RandomPairs( maps ) do
             if MapVote.isMapAllowed( map ) then
                 table.insert( mapsInVote, map )
 
-                if #mapsInVote >= MapVote.config.MapLimit then break end
+                if #mapsInVote >= MapVote.config.MapLimit and SendAllMaps ~= true then break end
             end
         end
     end
