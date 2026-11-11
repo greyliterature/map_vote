@@ -34,17 +34,26 @@ local function CalculateRowCount(squaresize, width, numitems)
     return rowcount
 end
 
-local Categories = {
-    -- the map networking would no longer be needed with this categories table, should only network x number of maps that aren't categorized
-    [1] = {
-        ["name"] = "MyCoolCategory1",
-        ["maps"] = {"gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map", "gm_c17map",}
-    },
-    [2] = {
-        ["name"] = "MyCoolCategory2",
-        ["maps"] = {"fof_city17"}
-    },
+-- the map networking would no longer be needed with this categories table, should only network x number of maps that aren't categorized
+local MapToCategory = {
+    ["gm_c17map"] = "MyCoolCategory1",
+    ["fof_city17"] = "MyCoolCategory2"
 }
+
+--[[
+local Categories = {}
+function MapVote.GetCategories()
+    Categories = {} -- in case it needs to refresh for whatever reason
+    for mapname, category in pairs(MapToCategory) do
+        if Categories[category] then continue end
+        Categories[category] = {}
+    end
+    return Categories
+end
+--]]
+function MapVote.GetMapList(self)
+    return self.currentMaps
+end
 
 --[[
 local VBarWidth = 64 / 1920 * ScrW()
@@ -123,61 +132,80 @@ function MapVote.StartVote(maps, endTime)
     end
 
     local TopDropDock = ScrH() * 0.01
-    for _, tbl in ipairs(Categories) do
-        local DropDown = vgui.Create("SDropDown", VoteFrame)
-        DropDown:Dock(TOP)
-        DropDown:SetWide(VoteFrame:GetWide())
-        DropDown:DockMargin(0, 0, 0, TopDropDock)
-        DropDown:SetTall(SixtyFour * 0.5)
-        DropDown:SetCategoryTitle(tbl.name)
-        --DropDown:DockPadding(0, DropDown:GetTall(), 0, 0)
-        local RowCount = CalculateRowCount(IconSize + RowGap, DropDown:GetWide(), #tbl.maps)
-        print(RowCount)
-        local ExpandedSize = RowCount * IconSize + (RowCount - 1) * RowGap + RowGap
-        DropDown:SetExpandedSize(ExpandedSize)
-        print(ExpandedSize, "HI")
-        local Grid = nil
-        function DropDown:FullyExpandedHook()
-            Grid = vgui.Create("SGrid", DropDown)
-            Grid:SetOverallAlignment(SGRID_ALIGN_LEFT)
-            Grid:DockMargin(RowGap, 0, 0, 0)
-            Grid:SetWide(DropDown:GetWide())
-            Grid:Dock(TOP) --0, 0 + DropDown:GetMinimizedSize())
-            --Grid:Hide()
-            function Grid.Paint(_, w, h)
-                if debugvgui == true then
-                    surface.SetDrawColor(mapvote_colortable.color_red)
-                    surface.DrawRect(0, 0, w, h)
-                end
-            end
+    local DropDowns = {} -- "category" = panel
+    local Categories = {}
+    for mapIndex, mapName in ipairs(maps) do
+        local category = MapToCategory[mapName] or "Uncategorized"
+        Categories[category] = Categories[category] or {}
+        Categories[category][mapIndex] = mapName
+    end
 
-            for i = 1, #tbl.maps do
-                local SpacerPanel = vgui.Create("DPanel", row)
-                function SpacerPanel.Paint(_, w, h)
+    for mapIndex, mapName in ipairs(maps) do
+        local category = MapToCategory[mapName] or "Uncategorized"
+        if not DropDowns[category] then
+            local DropDown = vgui.Create("SDropDown", VoteFrame)
+            DropDown:Dock(TOP)
+            DropDown:SetWide(VoteFrame:GetWide())
+            DropDown:DockMargin(0, 0, 0, TopDropDock)
+            DropDown:SetTall(SixtyFour * 0.5)
+            DropDown:SetCategoryTitle(category)
+            local RowCount = CalculateRowCount(IconSize + RowGap, DropDown:GetWide(), table.Count(Categories[category]))
+            local ExpandedSize = RowCount * IconSize + (RowCount - 1) * RowGap + RowGap
+            DropDown:SetExpandedSize(ExpandedSize)
+            DropDowns[category] = DropDown
+            function DropDown:FullyExpandedHook()
+                if IsValid(self.Grid) then return end
+                local Grid = vgui.Create("SGrid", DropDown)
+                Grid:SetOverallAlignment(SGRID_ALIGN_LEFT)
+                Grid:DockMargin(RowGap, 0, 0, 0)
+                Grid:SetWide(DropDown:GetWide())
+                Grid:Dock(TOP)
+                self.Grid = Grid
+                function Grid.Paint(_, w, h)
                     if debugvgui == true then
-                        surface.SetDrawColor(mapvote_colortable.color_yellow)
+                        surface.SetDrawColor(mapvote_colortable.color_red)
                         surface.DrawRect(0, 0, w, h)
                     end
                 end
 
-                SpacerPanel:SetWide(RowGap)
-                local VoteIcon = vgui.Create("MapVote_MapIcon", row) -- requires parent only because of autorefresh being annoying
-                VoteIcon:SetMap(tbl.maps[i])
-                --VoteIcon:DownloadMap()
-                VoteIcon:SetSize(IconSize, IconSize)
-                Grid:SetRowHeight(IconSize)
-                Grid:AddItem(VoteIcon)
-                Grid:AddItem(SpacerPanel)
+                for mapindex, mapname in ipairs(maps) do
+                    if (MapToCategory[mapname] or "Uncategorized") ~= category then -- this is inefficient but it works, whatever
+                        continue
+                    end
+
+                    print(mapname, "HAAHAH")
+                    local SpacerPanel = vgui.Create("DPanel", row)
+                    function SpacerPanel.Paint(_, w, h)
+                        if debugvgui == true then
+                            surface.SetDrawColor(mapvote_colortable.color_yellow)
+                            surface.DrawRect(0, 0, w, h)
+                        end
+                    end
+
+                    SpacerPanel:SetWide(RowGap)
+                    local VoteIcon = vgui.Create("MapVote_MapIcon", Grid) -- requires parent only because of autorefresh being annoying
+                    VoteIcon:SetMap(mapname)
+                    function VoteIcon.DoClick(_)
+                        MapVote.Net.changeVote(mapindex)
+                    end
+
+                    --VoteIcon:DownloadMap()
+                    VoteIcon:SetSize(IconSize, IconSize)
+                    Grid:SetRowHeight(IconSize)
+                    Grid:AddItem(VoteIcon)
+                    Grid:AddItem(SpacerPanel)
+                end
+
+                print("requesting workshop")
+                MapVote.ThumbDownloader:RequestWorkshopIDs()
+                Grid:Show()
             end
 
-            MapVote.ThumbDownloader:RequestWorkshopIDs()
-            Grid:Show()
-        end
-
-        function DropDown:FullyMinimizedHook()
-            if IsValid(Grid) then
-                print("Removed")
-                Grid:Remove()
+            function DropDown:FullyMinimizedHook()
+                if IsValid(self.Grid) then
+                    print("Removed")
+                    self.Grid:Remove()
+                end
             end
         end
     end
