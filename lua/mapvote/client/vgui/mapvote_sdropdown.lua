@@ -1,5 +1,24 @@
 -- SDropDown
 local PANEL = {}
+local fontCreated = {}
+local function iconFont(size)
+    -- no smaller  than 10
+    size = math.max(size, 10)
+    if fontCreated["MapVote_MapIcon" .. size] then return "MapVote_MapIcon" .. size end
+    local name = "MapVote_MapIcon" .. size
+    surface.CreateFont(name, {
+        font = "Roboto",
+        size = size,
+        weight = 600,
+        antialias = true,
+        shadow = true,
+        outline = true,
+    })
+
+    fontCreated[name] = true
+    return name
+end
+
 local TriangHeight = ScrH() * 0.007
 local TriangLength = ScrW() * 0.004
 local offset = 0
@@ -18,6 +37,7 @@ function PANEL:Init()
     self.Expanding = false
     self.FullyExpanded = false
     self.ExpandedSize = 400 -- size to hold all maps
+    self.CategoryTitle = "%PLACEHOLDER_TITLE%"
     self:SetMouseInputEnabled(true)
     --self.MinimizedSize = self:GetTall()
     self.DropDownTriangleTable = {{}, {}, {}}
@@ -96,10 +116,18 @@ function PANEL:Think()
     end
 end
 
+function PANEL:SetCategoryTitle(title)
+    self.CategoryTitle = title
+end
+function PANEL:GetCategoryTitle(title)
+    return self.CategoryTitle
+end
+
 function PANEL:Paint(w, h)
     surface.SetDrawColor(color_black)
     surface.DrawRect(0, 0, w, h)
     surface.SetDrawColor(color_white)
+    draw.SimpleText(self:GetCategoryTitle(), iconFont(23), w * 0.01, (self.MinimizedSize + ExponentialOffset) * 0.5, MapVote.style.colorTextPrimary, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
     if not self.DropDownTriangleTable[1].x then -- simple check
         return
     end
