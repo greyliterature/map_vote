@@ -17,6 +17,7 @@ local MapToCategory = {
 }
 
 local DropDowns = {} -- "category" = panel
+local Voters = {}
 ---@param ply Player
 ---@param mapIndex number
 ---@param voteMult number
@@ -36,6 +37,9 @@ function MapVote.ChangeVote(ply, mapIndex, voteMult)
     local category = MapToCategory[mapname] or "Uncategorized"
     local CategoryDropDown = DropDowns[category]
     print(mapIndex, "HI!")
+    local PlayersLastCategoryDropDown = Voters[identifier]
+    if IsValid(PlayersLastCategoryDropDown) then PlayersLastCategoryDropDown:RemoveVote(identifier) end
+    Voters[identifier] = CategoryDropDown
     CategoryDropDown:SetVote(identifier, mapIndex, voteMult)
 end
 
