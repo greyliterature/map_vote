@@ -10,6 +10,13 @@ function MapVote.CancelVote()
     hook.Run("MapVote_VoteCancelled")
 end
 
+-- the map networking would no longer be needed with this categories table, should only network x number of maps that aren't categorized
+local MapToCategory = {
+    ["gm_c17map"] = "MyCoolCategory1",
+    ["fof_city17"] = "MyCoolCategory2"
+}
+
+local DropDowns = {} -- "category" = panel
 ---@param ply Player
 ---@param mapIndex number
 ---@param voteMult number
@@ -23,7 +30,13 @@ function MapVote.ChangeVote(ply, mapIndex, voteMult)
         identifier = ply
     end
 
-    MapVote.Panel.voteArea:SetVote(identifier, mapIndex, voteMult)
+    --if IsValid(MapVote.Panel.OpenGrid) then MapVote.Panel.OpenGrid:SetVote(identifier, mapIndex, voteMult) end
+    local currentMaps = MapVote.GetMapList()
+    local mapname = currentMaps[mapIndex]
+    local category = MapToCategory[mapname] or "Uncategorized"
+    local CategoryDropDown = DropDowns[category]
+    print(mapIndex, "HI!")
+    CategoryDropDown:SetVote(identifier, mapIndex, voteMult)
 end
 
 --@ returns n amount of rows required to fit x number of items under constraint y width
@@ -33,12 +46,6 @@ local function CalculateRowCount(squaresize, width, numitems)
     local rowcount = math.ceil(numitems / columncount)
     return rowcount
 end
-
--- the map networking would no longer be needed with this categories table, should only network x number of maps that aren't categorized
-local MapToCategory = {
-    ["gm_c17map"] = "MyCoolCategory1",
-    ["fof_city17"] = "MyCoolCategory2"
-}
 
 --[[
 local Categories = {}
@@ -51,8 +58,14 @@ function MapVote.GetCategories()
     return Categories
 end
 --]]
-function MapVote.GetMapList(self)
-    return self.currentMaps
+function MapVote.GetTrueMapIndex(mapname)
+    for mapIndex, mapName in ipairs(MapVote.GetMapList()) do
+        if mapName == mapname then return mapIndex end
+    end
+end
+
+function MapVote.GetMapList()
+    return MapVote.currentMaps
 end
 
 --[[
@@ -132,14 +145,14 @@ function MapVote.StartVote(maps, endTime)
     end
 
     local TopDropDock = ScrH() * 0.01
-    local DropDowns = {} -- "category" = panel
     local Categories = {}
     for mapIndex, mapName in ipairs(maps) do
         local category = MapToCategory[mapName] or "Uncategorized"
         Categories[category] = Categories[category] or {}
-        Categories[category][mapIndex] = mapName
+        Categories[category][#Categories[category] + 1] = mapName
     end
 
+    DropDowns = {}
     for mapIndex, mapName in ipairs(maps) do
         local category = MapToCategory[mapName] or "Uncategorized"
         if not DropDowns[category] then
@@ -149,6 +162,9 @@ function MapVote.StartVote(maps, endTime)
             DropDown:DockMargin(0, 0, 0, TopDropDock)
             DropDown:SetTall(SixtyFour * 0.5)
             DropDown:SetCategoryTitle(category)
+            PrintTable(Categories[category])
+            print("HII")
+            DropDown:SetMaps(Categories[category])
             local RowCount = CalculateRowCount(IconSize + RowGap, DropDown:GetWide(), table.Count(Categories[category]))
             local ExpandedSize = RowCount * IconSize + (RowCount - 1) * RowGap + RowGap
             DropDown:SetExpandedSize(ExpandedSize)
@@ -168,7 +184,8 @@ function MapVote.StartVote(maps, endTime)
                     end
                 end
 
-                for mapindex, mapname in ipairs(maps) do
+                for mapindex, mapname in ipairs(Categories[category]) do
+                    print("HI", mapindex, mapname)
                     if (MapToCategory[mapname] or "Uncategorized") ~= category then -- this is inefficient but it works, whatever
                         continue
                     end
@@ -186,9 +203,11 @@ function MapVote.StartVote(maps, endTime)
                     local VoteIcon = vgui.Create("MapVote_MapIcon", Grid) -- requires parent only because of autorefresh being annoying
                     VoteIcon:SetMap(mapname)
                     function VoteIcon.DoClick(_)
-                        MapVote.Net.changeVote(mapindex)
+                        MapVote.Net.changeVote(mapIndex)
                     end
 
+                    self.maps[mapname].panel = VoteIcon
+                    print(VoteIcon, "hiya")
                     --VoteIcon:DownloadMap()
                     VoteIcon:SetSize(IconSize, IconSize)
                     Grid:SetRowHeight(IconSize)
@@ -207,6 +226,7 @@ function MapVote.StartVote(maps, endTime)
                     self.Grid:Remove()
                 end
             end
+            --[[--]]
         end
     end
 
