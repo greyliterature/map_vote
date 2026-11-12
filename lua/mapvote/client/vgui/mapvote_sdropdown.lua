@@ -165,6 +165,40 @@ function PANEL:OnMousePressed(keyCode)
     end
 end
 
+function PANEL:removeVote(oldVote, removePanel)
+    if removePanel == nil then removePanel = true end
+    local mapData = self.maps[oldVote.mapname]
+    -- Find index in votes for the old map, then reposition all icons after it
+    local indexToRemove = nil
+    for i, voter in ipairs(mapData.voters) do
+        if voter == oldVote.panel then
+            indexToRemove = i
+            break
+        end
+    end
+
+    if indexToRemove then
+        table.remove(mapData.voters, indexToRemove)
+    else
+        ErrorNoHalt("No index to remove??")
+        return
+    end
+
+    for i = indexToRemove, #mapData.voters do
+        local voter = mapData.voters[i]
+        local newX, newY, willOverflow = self:CalculateDesiredAvatarIconPosition(mapData, i)
+        voter:SetVisible(true)
+        voter.inAnimation = true
+        voter:MoveTo(newX, newY, 0.3, nil, 1, function(_, pnl)
+            pnl:SetVisible(not willOverflow)
+            pnl.inAnimation = false
+        end)
+    end
+
+    if removePanel then oldVote.panel:Remove() end
+    self:calculateIconPercents()
+end
+
 function PANEL:RemoveVote(identifier)
     local vote = self.votes[identifier]
     if not vote then return end
